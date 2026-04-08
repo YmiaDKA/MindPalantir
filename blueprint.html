@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>MindPalantir — Architecture Blueprint</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --c-bg: #f8fafc;
+      --c-canvas: #ffffff;
+      --c-border: #cbd5e1;
+      --c-text-main: #0f172a;
+      --c-text-sub: #64748b;
+      --font-ui: 'Inter', sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: var(--c-bg); font-family: var(--font-ui); color: var(--c-text-main); padding: 32px; }
+    .diagram-canvas { background: var(--c-canvas); border: 2px solid var(--c-border); padding: 0; max-width: 1100px; margin: 0 auto; }
+    .canvas-header { border-bottom: 2px solid var(--c-border); padding: 20px 28px; }
+    .canvas-header h1 { font-size: 20px; font-weight: 600; letter-spacing: -0.5px; }
+    .canvas-header .subtitle { font-family: var(--font-mono); font-size: 11px; color: var(--c-text-sub); text-transform: uppercase; letter-spacing: 1px; margin-top: 4px; }
+    .canvas-body { padding: 28px; display: flex; gap: 28px; }
+    .layer { flex: 1; }
+    .layer-title { font-family: var(--font-mono); font-size: 10px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--c-text-sub); margin-bottom: 12px; padding-bottom: 6px; border-bottom: 1px solid var(--c-border); }
+    .block { border: 1px solid var(--c-border); padding: 12px 14px; margin-bottom: 8px; background: var(--c-canvas); }
+    .block-title { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+    .block-desc { font-family: var(--font-mono); font-size: 11px; color: var(--c-text-sub); line-height: 1.5; }
+    .block-tag { display: inline-block; font-family: var(--font-mono); font-size: 9px; padding: 1px 6px; border: 1px solid var(--c-border); margin-right: 4px; margin-top: 4px; }
+    .connector { font-family: var(--font-mono); font-size: 10px; color: var(--c-text-sub); padding: 4px 0; border-left: 1px dashed var(--c-border); margin-left: 16px; padding-left: 10px; }
+    .highlight { border-color: #0f172a; border-width: 2px; }
+    .node-types { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
+    .node-type { border: 1px solid var(--c-border); padding: 8px; text-align: center; font-size: 12px; }
+    .node-type .icon { font-size: 18px; }
+    .node-type .label { font-family: var(--font-mono); font-size: 10px; color: var(--c-text-sub); margin-top: 2px; }
+    .footer { border-top: 1px solid var(--c-border); padding: 12px 28px; font-family: var(--font-mono); font-size: 10px; color: var(--c-text-sub); display: flex; justify-content: space-between; }
+  </style>
+</head>
+<body>
+  <div class="diagram-canvas">
+    <div class="canvas-header">
+      <h1>MindPalantir — System Architecture</h1>
+      <div class="subtitle">Second Brain · macOS SwiftUI · SQLite Graph Store · 2026.04.08</div>
+    </div>
+
+    <div class="canvas-body">
+      <!-- Layer 1: Data -->
+      <div class="layer">
+        <div class="layer-title">Data Layer</div>
+        <div class="block highlight">
+          <div class="block-title">NodeStore (SQLite)</div>
+          <div class="block-desc">
+            Single source of truth.<br>
+            WAL mode. Foreign keys ON.<br>
+            In-memory cache: [UUID: MindNode], [UUID: MindLink]
+          </div>
+          <div class="block-tag">brain.db</div>
+          <div class="block-tag">~/.hermes/.../MindPalantir/</div>
+        </div>
+        <div class="block">
+          <div class="block-title">MindNode</div>
+          <div class="block-desc">
+            id, type, title, body<br>
+            relevance (0-1), confidence (0-1)<br>
+            status, pinned, sourceOrigin<br>
+            metadata, dueDate
+          </div>
+        </div>
+        <div class="block">
+          <div class="block-title">MindLink</div>
+          <div class="block-desc">
+            sourceID → targetID<br>
+            linkType: belongsTo, relatedTo,<br>
+            mentions, scheduledFor, fromSource<br>
+            weight, dedupeKey
+          </div>
+        </div>
+        <div class="connector">├── nodes table (14 columns)</div>
+        <div class="connector">├── links table (7 columns, UNIQUE dedupe)</div>
+        <div class="connector">└── WAL + foreign keys + indexes</div>
+      </div>
+
+      <!-- Layer 2: Node Types -->
+      <div class="layer">
+        <div class="layer-title">Core Node Types</div>
+        <div class="node-types">
+          <div class="node-type"><div class="icon">📁</div><div class="label">Project</div></div>
+          <div class="node-type"><div class="icon">📝</div><div class="label">Note</div></div>
+          <div class="node-type"><div class="icon">✅</div><div class="label">Task</div></div>
+          <div class="node-type"><div class="icon">👤</div><div class="label">Person</div></div>
+          <div class="node-type"><div class="icon">📅</div><div class="label">Event</div></div>
+          <div class="node-type"><div class="icon">🔗</div><div class="label">Source</div></div>
+        </div>
+        <br>
+        <div class="layer-title">Scoring Systems</div>
+        <div class="block">
+          <div class="block-title">Relevance (0-1)</div>
+          <div class="block-desc">
+            Decides what shows on Today/Desktop.<br>
+            Combines: recency, access frequency,<br>
+            pinned status, project activity.<br>
+            Decays over 30-day half-life.
+          </div>
+        </div>
+        <div class="block">
+          <div class="block-title">Confidence (0-1)</div>
+          <div class="block-desc">
+            How certain is this data?<br>
+            Source quality, evidence amount,<br>
+            classification certainty.<br>
+            Drives Clarification queue.
+          </div>
+        </div>
+      </div>
+
+      <!-- Layer 3: Views -->
+      <div class="layer">
+        <div class="layer-title">Views (Queries, Not Copies)</div>
+        <div class="block highlight">
+          <div class="block-title">🖥️ Today / Desktop</div>
+          <div class="block-desc">
+            Main screen. Spatial card layout.<br>
+            Pinned + high-relevance items.<br>
+            Connection lines between related nodes.<br>
+            Project expand/collapse drill-down.
+          </div>
+        </div>
+        <div class="block">
+          <div class="block-title">📁 Project Detail</div>
+          <div class="block-desc">
+            Drill into project → see linked<br>
+            tasks, notes, people, events, sources.<br>
+            Quick-add buttons for new linked items.
+          </div>
+        </div>
+        <div class="block">
+          <div class="block-title">⏱️ Timeline</div>
+          <div class="block-desc">Chronological activity stream, grouped by day.</div>
+        </div>
+        <div class="block">
+          <div class="block-title">📥 Inbox</div>
+          <div class="block-desc">Raw input not yet fully organized.</div>
+        </div>
+        <div class="block">
+          <div class="block-title">❓ Clarification</div>
+          <div class="block-desc">Low-confidence items needing review.</div>
+        </div>
+        <div class="connector">All views query the same NodeStore</div>
+        <div class="connector">No data duplication across views</div>
+      </div>
+    </div>
+
+    <div class="canvas-body" style="border-top: 1px solid var(--c-border);">
+      <!-- Layer 4: Services -->
+      <div class="layer">
+        <div class="layer-title">Services</div>
+        <div class="block">
+          <div class="block-title">DataSeeder</div>
+          <div class="block-desc">Scans Mac: files, git repos, homebrew packages. Seeds on first launch.</div>
+        </div>
+        <div class="block">
+          <div class="block-title">RelevanceService (planned)</div>
+          <div class="block-desc">Decay, boost, recalculate scores.</div>
+        </div>
+      </div>
+      <div class="layer">
+        <div class="layer-title">MCP Servers</div>
+        <div class="block">
+          <div class="block-title">sosumi.ai</div>
+          <div class="block-desc">Apple Developer docs → markdown for LLMs.</div>
+        </div>
+        <div class="block">
+          <div class="block-title">ShipSwift</div>
+          <div class="block-desc">SwiftUI UI component library.</div>
+        </div>
+        <div class="block">
+          <div class="block-title">XcodeBuildMCP</div>
+          <div class="block-desc">Build, run, debug Xcode projects from AI.</div>
+        </div>
+      </div>
+      <div class="layer">
+        <div class="layer-title">AI Layer (Hermes)</div>
+        <div class="block">
+          <div class="block-title">Hermes Agent v0.8.0</div>
+          <div class="block-desc">
+            Research, planning, code generation.<br>
+            24+ Apple dev skills loaded.<br>
+            MiMo v2 Pro (free via Nous).
+          </div>
+        </div>
+        <div class="block">
+          <div class="block-title">Planned: Ingestion Agent</div>
+          <div class="block-desc">
+            Classify, summarize, link.<br>
+            Detect duplicates.<br>
+            Route to Clarification.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <span>MindPalantir v1 · Swift 6.3 · macOS 26.4 · M1 MacBook Air</span>
+      <span>44 nodes · 42 links · SQLite WAL mode</span>
+    </div>
+  </div>
+</body>
+</html>
