@@ -78,4 +78,15 @@ extension NodeType {
         case .source: "link"
         }
     }
+
+    var color: Color {
+        switch self {
+        case .project: .blue
+        case .note: .cyan
+        case .task: .green
+        case .person: .purple
+        case .event: .red
+        case .source: .orange
+        }
+    }
 }
