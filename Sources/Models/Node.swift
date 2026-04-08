@@ -24,7 +24,7 @@ enum NodeStatus: String, Codable, Sendable {
 // MARK: - Core Node
 
 /// One thing exists once. Views are queries, not copies.
-struct MindNode: Identifiable, Codable, Sendable {
+struct MindNode: Identifiable, Codable, Sendable, Equatable {
     let id: UUID
     var type: NodeType
     var title: String

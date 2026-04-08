@@ -145,47 +145,14 @@ final class DataSeeder {
     // MARK: - File Scanning
 
     private static func seedFromFiles(store: NodeStore, projectID: UUID) async {
-        let fm = FileManager.default
-
-        // Scan Desktop
-        if let desktop = fm.urls(for: .desktopDirectory, in: .userDomainMask).first {
-            let files = (try? fm.contentsOfDirectory(at: desktop, includingPropertiesForKeys: [.contentModificationDateKey], options: [.skipsHiddenFiles])) ?? []
-
-            for file in files.prefix(10) {
-                let name = file.lastPathComponent
-                guard !name.hasPrefix(".") else { continue }
-
-                let ext = file.pathExtension.lowercased()
-                let type: NodeType = sourceType(for: ext)
-                let modDate = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .now
-
-                let node = MindNode(
-                    type: type,
-                    title: name,
-                    body: "File on Desktop — \(ext.uppercased())",
-                    relevance: relevanceForRecentDate(modDate),
-                    confidence: 0.8,
-                    sourceOrigin: "file_scan_desktop"
-                )
-                try? store.insertNode(node)
+        // Use FileIngestor for proper scanning
+        let result = FileIngestor.scan(maxDepth: 2, maxFiles: 80)
+        FileIngestor.importToStore(result, store: store)
+        
+        // Link imported file sources to the project
+        for node in store.nodes.values where node.sourceOrigin == "file_scan" {
+            if !store.linkExists(sourceID: projectID, targetID: node.id, type: .fromSource) {
                 try? store.insertLink(MindLink(sourceID: projectID, targetID: node.id, linkType: .fromSource))
-            }
-        }
-
-        // Scan ~/SecondBrain (this project)
-        let projectDir = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("SecondBrain")
-        if let contents = try? fm.contentsOfDirectory(at: projectDir.appendingPathComponent("Sources"), includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
-            for dir in contents where dir.hasDirectoryPath {
-                let note = MindNode(
-                    type: .note,
-                    title: "Source: \(dir.lastPathComponent)/",
-                    body: "Code directory in MindPalantir project",
-                    relevance: 0.5,
-                    confidence: 0.9,
-                    sourceOrigin: "file_scan_project"
-                )
-                try? store.insertNode(note)
-                try? store.insertLink(MindLink(sourceID: projectID, targetID: note.id, linkType: .belongsTo))
             }
         }
     }

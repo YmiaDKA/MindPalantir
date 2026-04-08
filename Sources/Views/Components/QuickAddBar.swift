@@ -1,19 +1,28 @@
 import SwiftUI
 
-/// Quick add / chat-like input. The main capture mechanism.
+/// Quick add with smart type detection. Main capture mechanism.
 struct QuickAddBar: View {
     @Environment(NodeStore.self) private var store
     @State private var text = ""
-    @State private var showTypePicker = false
     @State private var selectedType: NodeType = .note
-
+    @State private var autoDetectedType: NodeType?
+    @State private var addedFeedback = false
+    
     var body: some View {
         HStack(spacing: 8) {
             // Type selector
             Menu {
                 ForEach(NodeType.allCases, id: \.self) { type in
                     Button { selectedType = type } label: {
-                        Label(type.rawValue.capitalized, systemImage: type.icon)
+                        HStack {
+                            Text(type.icon)
+                            Text(type.rawValue.capitalized)
+                            if autoDetectedType == type && selectedType != type {
+                                Text("(auto)")
+                                    .foregroundStyle(.secondary)
+                                    .font(.caption)
+                            }
+                        }
                     }
                 }
             } label: {
@@ -22,31 +31,115 @@ struct QuickAddBar: View {
             }
             .menuStyle(.borderlessButton)
             .frame(width: 32)
-
+            
             // Text field
             TextField("Quick add...", text: $text)
                 .textFieldStyle(.plain)
                 .onSubmit { addNode() }
-
-            if !text.isEmpty {
-                Button("Add", systemImage: "return") { addNode() }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
+                .onChange(of: text) { _, newText in
+                    autoDetectedType = detectType(newText)
+                    if let detected = autoDetectedType {
+                        selectedType = detected
+                    }
+                }
+            
+            // Add button or feedback
+            if addedFeedback {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                    .transition(.scale.combined(with: .opacity))
+            } else if !text.isEmpty {
+                Button { addNode() } label: {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.title3)
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut(.return, modifiers: .command)
             }
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
     }
-
+    
+    // MARK: - Smart Type Detection
+    
+    private func detectType(_ text: String) -> NodeType? {
+        let trimmed = text.trimmingCharacters(in: .whitespaces).lowercased()
+        
+        // URL → source
+        if trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") || trimmed.hasPrefix("www.") {
+            return .source
+        }
+        
+        // @name → person
+        if trimmed.hasPrefix("@") {
+            return .person
+        }
+        
+        // "todo:" or "- [ ]" → task
+        if trimmed.hasPrefix("todo:") || trimmed.hasPrefix("- [ ]") || trimmed.hasPrefix("task:") {
+            return .task
+        }
+        
+        // Date patterns → event
+        let dateWords = ["meeting", "call", "deadline", "due", "scheduled", "appointment"]
+        if dateWords.contains(where: { trimmed.contains($0) }) {
+            return .event
+        }
+        
+        // "project:" → project
+        if trimmed.hasPrefix("project:") || trimmed.hasPrefix("proj:") {
+            return .project
+        }
+        
+        return nil
+    }
+    
+    // MARK: - Add Node
+    
     private func addNode() {
-        guard !text.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        
+        // Clean up title based on type prefix
+        var title = trimmed
+        if selectedType == .task {
+            title = trimmed
+                .replacingOccurrences(of: "todo:", with: "")
+                .replacingOccurrences(of: "task:", with: "")
+                .replacingOccurrences(of: "- [ ]", with: "")
+                .trimmingCharacters(in: .whitespaces)
+        } else if selectedType == .person {
+            title = trimmed.hasPrefix("@") ? String(trimmed.dropFirst()) : trimmed
+        } else if selectedType == .project {
+            title = trimmed
+                .replacingOccurrences(of: "project:", with: "")
+                .replacingOccurrences(of: "proj:", with: "")
+                .trimmingCharacters(in: .whitespaces)
+        }
+        
         let node = MindNode(
             type: selectedType,
-            title: text.trimmingCharacters(in: .whitespaces),
+            title: title,
+            relevance: 0.7,
+            confidence: 0.8,
             sourceOrigin: "quick_add"
         )
         try? store.insertNode(node)
+        
         text = ""
+        selectedType = .note
+        autoDetectedType = nil
+        
+        // Feedback
+        withAnimation {
+            addedFeedback = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            withAnimation {
+                addedFeedback = false
+            }
+        }
     }
 }

@@ -46,7 +46,25 @@ struct RootView: View {
         .inspector(isPresented: $showInspector) {
             if let node = selectedNode {
                 InspectorPanel(node: node)
+            } else {
+                VStack(spacing: 12) {
+                    Spacer()
+                    Image(systemName: "sidebar.right")
+                        .font(.system(size: 32))
+                        .foregroundStyle(.tertiary)
+                    Text("Select an item")
+                        .font(.headline)
+                        .foregroundStyle(.secondary)
+                    Text("Click any card to inspect it")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity)
             }
+        }
+        .onChange(of: selectedNode) { _, newNode in
+            showInspector = newNode != nil
         }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
