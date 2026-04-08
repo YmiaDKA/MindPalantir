@@ -11,6 +11,7 @@ struct MindPalantirApp: App {
                 .task {
                     do {
                         try store.open()
+                        await DataSeeder.seed(store: store)
                     } catch {
                         print("Store open failed: \(error)")
                     }

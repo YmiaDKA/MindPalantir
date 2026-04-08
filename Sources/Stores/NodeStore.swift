@@ -1,9 +1,6 @@
 import Foundation
 import SQLite3
 
-// SQLITE_TRANSIENT is not exported as a constant — define it
-private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
-
 /// The single persistent store. One thing exists once.
 /// Views are queries on this store, not copies.
 @Observable
@@ -105,19 +102,27 @@ final class NodeStore {
 
         let metaJSON = String(data: (try? JSONEncoder().encode(node.metadata)) ?? Data("{}".utf8), encoding: .utf8) ?? "{}"
 
-        sqlite3_bind_text(stmt, 1, node.id.uuidString, -1, nil)
-        sqlite3_bind_text(stmt, 2, node.type.rawValue, -1, nil)
-        sqlite3_bind_text(stmt, 3, node.title, -1, SQLITE_TRANSIENT)
-        sqlite3_bind_text(stmt, 4, node.body, -1, SQLITE_TRANSIENT)
+        let idStr = node.id.uuidString as NSString
+        let typeStr = node.type.rawValue as NSString
+        let titleStr = node.title as NSString
+        let bodyStr = node.body as NSString
+        let statusStr = node.status.rawValue as NSString
+        let originStr = (node.sourceOrigin ?? "") as NSString
+        let metaStr = metaJSON as NSString
+
+        sqlite3_bind_text(stmt, 1, idStr.utf8String, -1, nil)
+        sqlite3_bind_text(stmt, 2, typeStr.utf8String, -1, nil)
+        sqlite3_bind_text(stmt, 3, titleStr.utf8String, -1, nil)
+        sqlite3_bind_text(stmt, 4, bodyStr.utf8String, -1, nil)
         sqlite3_bind_double(stmt, 5, node.createdAt.timeIntervalSince1970)
         sqlite3_bind_double(stmt, 6, node.updatedAt.timeIntervalSince1970)
         sqlite3_bind_double(stmt, 7, node.lastAccessedAt.timeIntervalSince1970)
         sqlite3_bind_double(stmt, 8, node.relevance)
         sqlite3_bind_double(stmt, 9, node.confidence)
-        sqlite3_bind_text(stmt, 10, node.status.rawValue, -1, nil)
+        sqlite3_bind_text(stmt, 10, statusStr.utf8String, -1, nil)
         sqlite3_bind_int(stmt, 11, node.pinned ? 1 : 0)
-        sqlite3_bind_text(stmt, 12, node.sourceOrigin ?? "", -1, SQLITE_TRANSIENT)
-        sqlite3_bind_text(stmt, 13, metaJSON, -1, SQLITE_TRANSIENT)
+        sqlite3_bind_text(stmt, 12, originStr.utf8String, -1, nil)
+        sqlite3_bind_text(stmt, 13, metaStr.utf8String, -1, nil)
         if let due = node.dueDate {
             sqlite3_bind_double(stmt, 14, due.timeIntervalSince1970)
         } else {
@@ -130,8 +135,9 @@ final class NodeStore {
     }
 
     func deleteNode(id: UUID) throws {
-        try exec("DELETE FROM links WHERE source_id='\(id.uuidString)' OR target_id='\(id.uuidString)'")
-        try exec("DELETE FROM nodes WHERE id='\(id.uuidString)'")
+        let idStr = id.uuidString
+        try exec("DELETE FROM links WHERE source_id='\(idStr)' OR target_id='\(idStr)'")
+        try exec("DELETE FROM nodes WHERE id='\(idStr)'")
         nodes.removeValue(forKey: id)
         links = links.filter { $0.value.sourceID != id && $0.value.targetID != id }
             .reduce(into: [:]) { $0[$1.key] = $1.value }
@@ -149,13 +155,19 @@ final class NodeStore {
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { throw StoreError.queryFailed }
         defer { sqlite3_finalize(stmt) }
 
-        sqlite3_bind_text(stmt, 1, link.id.uuidString, -1, nil)
-        sqlite3_bind_text(stmt, 2, link.sourceID.uuidString, -1, nil)
-        sqlite3_bind_text(stmt, 3, link.targetID.uuidString, -1, nil)
-        sqlite3_bind_text(stmt, 4, link.linkType.rawValue, -1, nil)
+        let idStr = link.id.uuidString as NSString
+        let srcStr = link.sourceID.uuidString as NSString
+        let tgtStr = link.targetID.uuidString as NSString
+        let typeStr = link.linkType.rawValue as NSString
+        let dedupeStr = link.dedupeKey as NSString
+
+        sqlite3_bind_text(stmt, 1, idStr.utf8String, -1, nil)
+        sqlite3_bind_text(stmt, 2, srcStr.utf8String, -1, nil)
+        sqlite3_bind_text(stmt, 3, tgtStr.utf8String, -1, nil)
+        sqlite3_bind_text(stmt, 4, typeStr.utf8String, -1, nil)
         sqlite3_bind_double(stmt, 5, link.weight)
         sqlite3_bind_double(stmt, 6, link.createdAt.timeIntervalSince1970)
-        sqlite3_bind_text(stmt, 7, link.dedupeKey, -1, SQLITE_TRANSIENT)
+        sqlite3_bind_text(stmt, 7, dedupeStr.utf8String, -1, nil)
 
         guard sqlite3_step(stmt) == SQLITE_DONE else { throw StoreError.queryFailed }
         links[link.id] = link
@@ -291,9 +303,6 @@ final class NodeStore {
         let type = NodeType(rawValue: String(cString: typeStr)) ?? .note
         let title = String(cString: titleStr)
         let body = sqlite3_column_text(stmt, 3).map { String(cString: $0) } ?? ""
-        let _ = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 4))  // createdAt
-        let _ = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 5))  // updatedAt
-        let _ = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 6))  // lastAccessed
         let relevance = sqlite3_column_double(stmt, 7)
         let confidence = sqlite3_column_double(stmt, 8)
         let status = NodeStatus(rawValue: sqlite3_column_text(stmt, 9).map { String(cString: $0) } ?? "active") ?? .active

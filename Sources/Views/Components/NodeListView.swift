@@ -27,27 +27,37 @@ struct NodeListView: View {
     }
 }
 
-/// Projects with connection counts.
+/// Projects with drill-down navigation.
 struct ProjectListView: View {
     @Environment(NodeStore.self) private var store
     @Binding var selectedNode: MindNode?
+    @State private var navigatedProject: MindNode?
 
     var body: some View {
-        List(store.activeNodes(ofType: .project)) { node in
-            let connections = store.connectedNodes(for: node.id).count
-            HStack {
-                Image(systemName: "folder.fill").foregroundStyle(.blue)
-                VStack(alignment: .leading) {
-                    Text(node.title).font(.headline)
-                    Text("\(connections) items · \(node.status.rawValue)")
-                        .font(.caption).foregroundStyle(.secondary)
+        NavigationStack {
+            List(store.activeNodes(ofType: .project)) { node in
+                let connections = store.connectedNodes(for: node.id).count
+                NavigationLink(value: node.id) {
+                    HStack {
+                        Image(systemName: "folder.fill").foregroundStyle(.blue)
+                        VStack(alignment: .leading) {
+                            Text(node.title).font(.headline)
+                            Text("\(connections) items · \(node.status.rawValue)")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        RelevanceBar(value: node.relevance).frame(width: 40, height: 3)
+                    }
                 }
-                Spacer()
-                RelevanceBar(value: node.relevance).frame(width: 40, height: 3)
+                .contentShape(Rectangle())
+                .onTapGesture { selectedNode = node }
             }
-            .contentShape(Rectangle())
-            .onTapGesture { selectedNode = node }
+            .navigationTitle("Projects")
+            .navigationDestination(for: UUID.self) { id in
+                if let project = store.nodes[id] {
+                    ProjectDetailView(project: project, selectedNode: $selectedNode)
+                }
+            }
         }
-        .navigationTitle("Projects")
     }
 }
