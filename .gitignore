@@ -1,0 +1,6 @@
+.build/
+dist/
+*.xcodeproj/project.xcworkspace/
+*.xcodeproj/xcuserdata/
+.DS_Store
+Package.swift.bak
