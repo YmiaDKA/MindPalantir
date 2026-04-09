@@ -1,76 +1,90 @@
-# Checkpoint — April 9, 2026 ~17:30 CEST
+# Checkpoint — April 9, 2026 ~18:00 CEST
 
 ## Session summary
-Autonomous loop: 8 iterations. UX consistency pass + living workspace features.
+Autonomous loop: 10 more iterations (total 19 this session). Living workspace + ingestion + UX polish.
 
-## What changed (8 commits, all pushed)
+## What changed (10 commits, all pushed)
 
-### 1. Multi-signal relevance engine (RelevanceEngine.swift)
-- Replaced disconnected formula with 7 weighted signals: recency (0.25), open state (0.20), connections (0.15), project activity (0.15), event proximity (0.10), access frequency (0.10), pin boost (0.05)
-- Completed/archived get steep penalties (0.05/0.02 floor)
-- Exponential decay half-lives: recency 7 days, access 3 days
+### Dedup pipeline
+- FileIngestor.importToStore checks existing paths before importing
+- Watched folder importFile has guard against duplicate paths
 
-### 2. Project card dashboard (ProjectDetailView.swift)
-- Complete redesign: flat list → card dashboard with AdaptiveCardGrid (2-column)
-- 6 cards: Tasks, Activity, People, Events, Sources, Quick Add
-- DashboardCard reusable component, Overview card with progress/stats
+### Richer chat context
+- BrainContext project pack now includes sources, recent activity, better dedup
+- Compressor shows body text for short items, task status in Nearby
+- Stats include notes count, sources count
 
-### 3. Auto-discovered related content
-- Project finds nodes mentioning its title even without explicit links
-- One-click link button to connect discovered content
+### File type auto-classification
+- WatcherService classifies: .md→note, todo files→task, .vcf→person, .ics→event
+- Confidence varies: source (0.9), classified types (0.7)
 
-### 4. Watched folder (Karpathy wiki insight)
-- Point project at directory via NSOpenPanel
-- Scans for new files, one-click import or batch import all
-- FileIngestor.scan() accepts custom paths
+### Auto-link on node creation
+- NodeStore.insertNode calls autoLinkMentions — text mentions of existing nodes create relatedTo links
+- Bridges manual linking and Hermes classification
 
-### 5. Auto-link from ingestion
-- WatcherService auto-links imported files to projects they mention
-- Closes the loop: file lands → ingested → linked → shows in project
+### Inspector auto-save
+- Replaced manual Save button with debounced 0.5s auto-save on any field change
+- onChange handlers for title, body, relevance, confidence, pinned, status
+- Subtle "Saved" indicator that fades
 
-### 6. Full UX consistency pass
-- ALL views now use Theme.Fonts, Theme.Spacing, Theme.Radius, Theme.Colors
-- NodeListView, TimelineView, ChatView, InboxView, ClarificationView, QuickAddBar
-- Removed hardcoded .purple → Theme.Colors.accent everywhere
-- Removed raw spacing numbers (8, 10, 14) → Theme.Spacing.sm/md/lg
-- Removed raw corner radii (6, 8, 10, 12) → Theme.Radius.chip/card
-- Node type icons now colored via Theme.Colors.typeColor
+### File preview on import
+- WatcherService reads first 500 chars of text files (.md, .txt, .swift, etc.) for node body
+- Imported nodes show content, not just path
 
-### 7. Navigation fix
-- Clicking project in Today/sidebar → navigates to ProjectDetailView (was: opens inspector)
-- Back button to return from project dashboard
-- onOpenProject callback pattern, clean architecture
-- Screen change clears project navigation
+### Project dashboard: Notes card + inline quick add
+- Notes card: shows project notes with body preview, timestamps, inline add
+- Tasks card: inline "Add task..." text field (Enter to create)
+- Both auto-link new items to project
+- Fixed bug: insertLink(note) → insertLink(link)
 
-### 8. Sidebar improvements
-- Screen items show node counts (e.g., "Tasks 12")
-- Active screen icon highlights with Theme.Colors.accent
-- Project sidebar shows open task count
-- Removed dead GraphOverlay.swift (hardcoded white, never wired up)
+### Sidebar Recent section
+- 5 most recently updated nodes in sidebar with colored type icons
+- Quick access to last-touched items (Karpathy log.md concept)
 
-### 9. Today view: all projects strip
-- Horizontal card strip showing all active projects (not just focus one)
-- Mini progress bars, task counts
-- Tapping navigates to project dashboard
+### Recent chips: type colors + parent project
+- RecentChip shows type icon with Theme.Colors.typeColor
+- Shows parent project name in accent purple
+
+### Weekly resurfacing
+- New RESURFACING section on Today view
+- Items untouched 7-30 days with relevance >= 0.15
+- "forgotten but still relevant" — second chance for fading knowledge
+- Completes P1 "weekly resurfacing / review" from PRODUCT_CONTEXT.md
 
 ## Current repo state
 - GitHub: https://github.com/YmiaDKA/MindPalantir
 - Branch: main (all pushed)
-- Builds clean, no errors (pre-existing warnings in DataSeeder, ICloudScanner)
-- 28 Swift source files
+- Builds clean, 28 Swift files
+
+## Today view sections (complete)
+1. Quick Add bar
+2. FOCUS — hero project card (navigates to dashboard)
+3. PROJECTS — horizontal strip of all active projects
+4. TASKS — compact list with inline completion
+5. PEOPLE — who matters now
+6. UPCOMING — next 7 days events
+7. RECENT — horizontal activity strip with type colors + parent project
+8. NEEDS ATTENTION — low confidence items (orange)
+9. RESURFACING — forgotten-but-relevant items (orange)
+
+## Project dashboard cards
+1. Overview (title, progress, stats)
+2. Tasks (inline add)
+3. Notes (inline add)
+4. Activity (recent 14 days)
+5. People
+6. Events
+7. Sources
+8. Related (auto-discovered)
+9. Watched Folder
+10. Quick Add
 
 ## What's still missing
-1. No Hermes integration (ingestion, classification, routines)
-2. No preference/taste memory
-3. Relevance engine is better but could use ML signals
-4. No source import dedupe pipeline (same file imported twice)
-5. Chat view needs richer context from project workspaces
-
-## Next high-value tasks
-- **Chat context from project workspace** — when chatting about a project, the AI should see that project's full context (tasks, notes, files)
-- **Dedupe pipeline** — prevent re-importing same files
-- **Hermes auto-classification** — file watcher should classify new files as task/note/source instead of always creating source nodes
-- **Project activity timeline** — chronological changes within a project
+1. No preference/taste memory
+2. Calendar/event-driven relevance (calendar import exists but not wired to relevance)
+3. No multi-project workspace view
+4. Chat doesn't know which project user is viewing
+5. No mobile/sync
 
 ## Build command
 ```bash
