@@ -1,28 +1,32 @@
 # Checkpoint — April 9, 2026 ~17:00 CEST
 
 ## Session summary
-Built MindPalantir improvements in 3 operating loop iterations following HERMES_OPERATING_CONTRACT.md.
+Redesigned ProjectDetailView as a card dashboard, following checkpoint from previous session.
 
-## What changed (3 commits, all pushed to GitHub)
+## What changed (1 commit, pushed to GitHub)
 
-### 1. Memory Router (BrainContext.swift)
-- **Before:** BrainContext.build(from: store) dumped ALL nodes (130+) into every chat message
-- **After:** BrainContext.route(question: store) detects intent, picks anchor (today/project/person/date/task/note), retrieves ~20 nearest nodes, compresses into small context pack
-- Matches PRODUCT_CONTEXT.md rule: "The AI should not remember everything. It should know how to fetch the right things."
+### 1. ProjectDetailView → Card Dashboard
+- **Before:** Flat scrollable list — header + section() calls for each type
+- **After:** Card dashboard with 5 distinct card panels in a 2-column adaptive grid
+- Overview card: title, status pill, confidence badge, full-width progress bar with percentage, stats row (connected/tasks/notes/sources + relative update time)
+- Tasks card: open tasks sorted by relevance + up to 3 completed, inline toggle, due dates, relevance dots
+- Activity card: recent notes + tasks from last 14 days with type icons and relative timestamps
+- People card: connected people with roles from body text
+- Events card: upcoming events with relative due dates (red if overdue)
+- Sources card: linked sources with confidence badges
+- Quick Add card: one-tap add for all 5 node types (task/note/person/event/source)
+- `DashboardCard` — reusable card panel component with icon, title, count pill
+- `AdaptiveCardGrid` — LazyVGrid with 2 flexible columns, collapses to 1 on narrow
 
-### 2. Today View — missing sections added (TodayView.swift)
-- Added PEOPLE section (connected to active project, or top people by relevance)
-- Added UPCOMING EVENTS section (next 7 days)
-- Added NEEDS ATTENTION section (low-confidence items, orange styling)
-- Now shows all 6 sections from DESIGN_SPEC.md: hero + tasks + people + events + recent + clarification
+### Design decisions
+- All cards use `Theme` system: Fonts, Spacing (8pt grid), Radius (10pt cards), Colors
+- `regularMaterial` → `controlBackgroundColor` for cards (matches Today view)
+- Cards have subtle 0.5pt border (`.quaternary`) for edge definition
+- Overview card gets accent border (0.12 opacity purple) for hierarchy
+- Stats in overview use small icon+value+label format, compact but readable
+- Activity card auto-shows recent changes — makes project feel alive
 
-### 3. Project Detail — workspace improvements (ProjectDetailView.swift)
-- Full-width progress bar with X/Y count and percentage
-- Stats row: linked items, connections, relative update time
-- Inline task completion toggle (tap circle to complete/uncomplete)
-- Strikethrough on completed tasks
-
-## Also done earlier this session (before reading the 4 docs)
+## Also done this session (before checkpoint reload)
 - SF Symbols migration (all views from emoji to Image(systemName:))
 - 8 AI brain tools (delete, list, find_connections, get_node_details)
 - Streaming chat with stop button
@@ -30,37 +34,28 @@ Built MindPalantir improvements in 3 operating loop iterations following HERMES_
 - FTS5 full-text search with Porter stemming
 - Keyboard shortcuts (Cmd+1-8, Cmd+N, Cmd+I)
 - Inbox promote workflow
+- Memory Router (BrainContext.swift) — intent-based retrieval instead of dumping all nodes
+- Today View — all 6 sections (hero + tasks + people + events + recent + clarification)
+- Project Detail — progress bar, stats, inline task toggle
 
 ## Current repo state
 - GitHub: https://github.com/YmiaDKA/MindPalantir
 - Branch: main (all pushed)
 - Builds clean, no warnings
-- 28 Swift source files
+- 29 Swift source files
 
 ## What's still missing (from PRODUCT_CONTEXT.md)
-1. **Project view is not a real workspace yet** — next priority. Needs card dashboard redesign.
-2. No Hermes integration (ingestion, classification, routines)
-3. No preference/taste memory
-4. Relevance engine is formulaic, not adaptive
-5. No source import dedupe pipeline
+1. No Hermes integration (ingestion, classification, routines)
+2. No preference/taste memory
+3. Relevance engine is formulaic, not adaptive
+4. No source import dedupe pipeline
+5. Project view could still go deeper (activity timeline, file attachments)
 
-## Next highest-value task
-**Redesign ProjectDetailView as a card dashboard.**
-
-The project view should feel like a living workspace for a project (e.g., MindPalantir or MinLønn), not a flat list.
-
-Plan:
-- Overview card: title, description, status, progress bar, stats
-- Tasks card: open tasks with inline completion, compact rows
-- Activity card: recent notes/changes for this project (auto-updates)
-- People card: who's connected
-- Sources card: files, links, repos
-
-Each card is a self-contained panel following native macOS patterns (cards, panels, drill-down).
-
-Research done: NotebookLM (sources → synthesis), Pickle (present-day awareness), Apple HIG (cards, progressive disclosure, typography hierarchy), swiftui-patterns (native macOS components).
-
-Direction confirmed: card dashboard (not whiteboard, not flat list). Contract says "desktop/dashboard over canvas."
+## Next highest-value tasks (pick one)
+- **Enhance Today view relevance** — make the focus project selection smarter (consider recency + task count + connections, not just pinned + relevance threshold)
+- **Add Hermes ingestion hooks** — basic file watcher that classifies and creates nodes from dropped files
+- **Improve relevance engine** — move from formulaic scoring to multi-signal (recency, connections, project activity, task completion rate)
+- **Project activity timeline** — show chronological changes within a project, not just recent items
 
 ## Files to read first in new session
 1. `PRODUCT_CONTEXT.md` — what the app IS
