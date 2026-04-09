@@ -50,6 +50,9 @@ struct InspectorPanel: View {
                 
                 // Connections
                 connectionsSection
+
+                // Backlinks — nodes that reference this one
+                backlinksSection
                 
                 // Metadata
                 metadataSection
@@ -268,6 +271,86 @@ struct InspectorPanel: View {
         }
     }
     
+    // MARK: - Backlinks (wiki essential — what links here?)
+
+    private var backlinksSection: some View {
+        let allBacklinks = store.backlinks(for: node.id)
+        // Filter out "connections" (bidirectional) — backlinks are INCOMING only
+        // connectionsSection already shows all connected nodes, so backlinks emphasizes
+        // the directionality and link type for wiki-style navigation
+        let byType = Dictionary(grouping: allBacklinks) { $0.linkType }
+
+        return Group {
+            if !allBacklinks.isEmpty {
+                VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+                    HStack(spacing: Theme.Spacing.sm) {
+                        Text("BACKLINKS")
+                            .font(Theme.Fonts.tiny)
+                            .foregroundStyle(.tertiary)
+                            .tracking(1)
+                        Spacer()
+                        Text("\(allBacklinks.count)")
+                            .font(Theme.Fonts.tiny)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(.quaternary, in: Capsule())
+                    }
+
+                    // Show backlinks grouped by link type for clarity
+                    ForEach(LinkType.allCases, id: \.self) { linkType in
+                        let items = byType[linkType] ?? []
+                        if !items.isEmpty {
+                            VStack(alignment: .leading, spacing: 2) {
+                                // Link type label
+                                Text(linkTypeLabel(linkType))
+                                    .font(Theme.Fonts.tiny)
+                                    .foregroundStyle(.tertiary)
+                                    .padding(.top, 2)
+
+                                ForEach(items, id: \.node.id) { entry in
+                                    HStack(spacing: Theme.Spacing.sm) {
+                                        Image(systemName: entry.node.type.sfIcon)
+                                            .font(.system(size: 10))
+                                            .foregroundStyle(Theme.Colors.typeColor(entry.node.type))
+                                            .frame(width: 14)
+                                        Text(entry.node.title)
+                                            .font(Theme.Fonts.caption)
+                                            .lineLimit(1)
+                                        Spacer()
+                                        Image(systemName: "arrow.turn.down.right")
+                                            .font(.system(size: 8))
+                                            .foregroundStyle(.tertiary)
+                                    }
+                                    .padding(.horizontal, Theme.Spacing.sm)
+                                    .padding(.vertical, 4)
+                                    .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: Theme.Radius.chip))
+                                    .contentShape(Rectangle())
+                                    .onTapGesture {
+                                        NotificationCenter.default.post(
+                                            name: NSNotification.Name("SelectNode"),
+                                            object: entry.node
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func linkTypeLabel(_ type: LinkType) -> String {
+        switch type {
+        case .belongsTo: "belongs to"
+        case .relatedTo: "related"
+        case .mentions: "mentions"
+        case .scheduledFor: "scheduled"
+        case .fromSource: "from source"
+        }
+    }
+
     // MARK: - Metadata
     
     private var metadataSection: some View {

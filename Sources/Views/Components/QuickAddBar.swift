@@ -8,7 +8,8 @@ struct QuickAddBar: View {
     @State private var autoDetectedType: NodeType?
     @State private var addedFeedback = false
     var focusedProject: MindNode? = nil
-    
+    @FocusState private var isFocused: Bool
+
     var body: some View {
         HStack(spacing: Theme.Spacing.sm) {
             // Type selector
@@ -32,10 +33,11 @@ struct QuickAddBar: View {
             }
             .menuStyle(.borderlessButton)
             .frame(width: 32)
-            
+
             // Text field
             TextField("Quick add...", text: $text)
                 .textFieldStyle(.plain)
+                .focused($isFocused)
                 .onSubmit { addNode() }
                 .onChange(of: text) { _, newText in
                     autoDetectedType = detectType(newText)
@@ -61,6 +63,11 @@ struct QuickAddBar: View {
         .padding(.horizontal, Theme.Spacing.md)
         .padding(.vertical, Theme.Spacing.xs + 2)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: Theme.Radius.card))
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("FocusQuickAdd"))) { _ in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                isFocused = true
+            }
+        }
     }
     
     // MARK: - Smart Type Detection

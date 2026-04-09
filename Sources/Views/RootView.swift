@@ -154,7 +154,10 @@ struct RootView: View {
                     .help("Quick Switch (⌘K)")
                     .accessibilityLabel("Quick Switch")
 
-                    Button { selectedScreen = .today } label: {
+                    Button {
+                        selectedScreen = .today
+                        NotificationCenter.default.post(name: NSNotification.Name("FocusQuickAdd"), object: nil)
+                    } label: {
                         Image(systemName: "plus.circle")
                     }
                     .controlSize(.small)

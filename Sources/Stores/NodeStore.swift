@@ -377,6 +377,17 @@ final class NodeStore {
             .max { $0.weight < $1.weight }
     }
 
+    /// Backlinks — nodes that link TO the given node (the wiki essential).
+    /// Returns (node, linkType) pairs grouped by link type for the inspector.
+    func backlinks(for nodeID: UUID) -> [(node: MindNode, linkType: LinkType)] {
+        let incoming = links.values.filter { $0.targetID == nodeID }
+        return incoming.compactMap { link in
+            guard let source = nodes[link.sourceID] else { return nil }
+            return (node: source, linkType: link.linkType)
+        }
+        .sorted { $0.node.updatedAt > $1.node.updatedAt }
+    }
+
     // MARK: - Full-Text Search (FTS5)
 
     /// Search nodes using FTS5 with Porter stemming.
