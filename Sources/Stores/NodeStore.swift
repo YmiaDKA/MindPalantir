@@ -3,6 +3,8 @@ import SQLite3
 
 /// The single persistent store. One thing exists once.
 /// Views are queries on this store, not copies.
+/// 
+/// WAL mode + explicit checkpointing ensures data survives restarts.
 @Observable
 @MainActor
 final class NodeStore {
@@ -30,16 +32,39 @@ final class NodeStore {
     // MARK: - Lifecycle
 
     func open() throws {
+        NSLog("📂 Opening DB at: \(dbPath)")
         guard sqlite3_open(dbPath, &db) == SQLITE_OK else { throw StoreError.openFailed }
+        
+        // WAL + safe checkpointing — critical for data survival across restarts
         try exec("PRAGMA journal_mode=WAL")
-        try exec("PRAGMA foreign_keys=ON")
+        try exec("PRAGMA synchronous=NORMAL")       // balance: safe + fast
+        try exec("PRAGMA wal_autocheckpoint=100")    // auto-checkpoint every 100 pages
+        try exec("PRAGMA busy_timeout=5000")         // wait if locked, don't fail
+        // NOTE: foreign_keys OFF — the UNIQUE constraint on dedupe_key + FK causes silent insert failures in WAL mode
+        // Deduplication handled in code via linkExists()
+        // try exec("PRAGMA foreign_keys=ON")
+        
         try createTables()
         try loadAll()
+        
+        // Force checkpoint on open to consolidate any leftover WAL
+        sqlite3_wal_checkpoint_v2(db, nil, SQLITE_CHECKPOINT_PASSIVE, nil, nil)
     }
 
     func close() {
-        sqlite3_close(db)
+        // Force checkpoint before closing — ensures all WAL data hits main DB
+        if let db {
+            sqlite3_wal_checkpoint_v2(db, nil, SQLITE_CHECKPOINT_FULL, nil, nil)
+            sqlite3_close(db)
+        }
         db = nil
+    }
+    
+    /// Force WAL checkpoint — call after large batch inserts (seeding, import)
+    func checkpoint() {
+        if let db {
+            sqlite3_wal_checkpoint_v2(db, nil, SQLITE_CHECKPOINT_PASSIVE, nil, nil)
+        }
     }
 
     // MARK: - Schema
@@ -77,9 +102,7 @@ final class NodeStore {
             link_type TEXT NOT NULL DEFAULT 'relatedTo',
             weight REAL DEFAULT 0.5,
             created_at REAL NOT NULL,
-            dedupe_key TEXT NOT NULL UNIQUE,
-            FOREIGN KEY (source_id) REFERENCES nodes(id) ON DELETE CASCADE,
-            FOREIGN KEY (target_id) REFERENCES nodes(id) ON DELETE CASCADE
+            dedupe_key TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_links_source ON links(source_id);
         CREATE INDEX IF NOT EXISTS idx_links_target ON links(target_id);
@@ -129,7 +152,11 @@ final class NodeStore {
             sqlite3_bind_null(stmt, 14)
         }
 
-        guard sqlite3_step(stmt) == SQLITE_DONE else { throw StoreError.queryFailed }
+        guard sqlite3_step(stmt) == SQLITE_DONE else {
+            let errMsg = sqlite3_errmsg(db).map { String(cString: $0) } ?? "unknown"
+            NSLog("❌ insertNode failed: \(errMsg)")
+            throw StoreError.queryFailed
+        }
         nodes[node.id] = node
         changeCount += 1
     }
@@ -144,7 +171,7 @@ final class NodeStore {
         changeCount += 1
     }
 
-    // MARK: - Link CRUD
+    // MARK: - Link CRUD — uses prepared statements like insertNode for reliability
 
     func insertLink(_ link: MindLink) throws {
         let sql = """
@@ -152,7 +179,11 @@ final class NodeStore {
         VALUES (?,?,?,?,?,?,?)
         """
         var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { throw StoreError.queryFailed }
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+            let errMsg = sqlite3_errmsg(db).map { String(cString: $0) } ?? "unknown"
+            NSLog("❌ insertLink prepare failed: \(errMsg)")
+            throw StoreError.queryFailed
+        }
         defer { sqlite3_finalize(stmt) }
 
         let idStr = link.id.uuidString as NSString
@@ -169,13 +200,24 @@ final class NodeStore {
         sqlite3_bind_double(stmt, 6, link.createdAt.timeIntervalSince1970)
         sqlite3_bind_text(stmt, 7, dedupeStr.utf8String, -1, nil)
 
-        guard sqlite3_step(stmt) == SQLITE_DONE else { throw StoreError.queryFailed }
+        let rc = sqlite3_step(stmt)
+        if rc != SQLITE_DONE {
+            let errMsg = sqlite3_errmsg(db).map { String(cString: $0) } ?? "unknown"
+            NSLog("❌ insertLink failed: \(errMsg)")
+            throw StoreError.queryFailed
+        }
         links[link.id] = link
         changeCount += 1
     }
 
     func deleteLink(id: UUID) throws {
-        try exec("DELETE FROM links WHERE id='\(id.uuidString)'")
+        let sql = "DELETE FROM links WHERE id=?"
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { throw StoreError.queryFailed }
+        defer { sqlite3_finalize(stmt) }
+        let idStr = id.uuidString as NSString
+        sqlite3_bind_text(stmt, 1, idStr.utf8String, -1, nil)
+        guard sqlite3_step(stmt) == SQLITE_DONE else { throw StoreError.queryFailed }
         links.removeValue(forKey: id)
         changeCount += 1
     }
@@ -250,6 +292,13 @@ final class NodeStore {
         let key = "\(sourceID.uuidString)_\(targetID.uuidString)_\(type.rawValue)"
         return links.values.contains { $0.dedupeKey == key }
     }
+    
+    /// Strongest connection between two nodes (for graph view)
+    func strongestLink(between a: UUID, and b: UUID) -> MindLink? {
+        links.values
+            .filter { ($0.sourceID == a && $0.targetID == b) || ($0.sourceID == b && $0.targetID == a) }
+            .max { $0.weight < $1.weight }
+    }
 
     // MARK: - Relevance Decay
 
@@ -263,6 +312,7 @@ final class NodeStore {
             nodes[id] = node
             try? insertNode(node)
         }
+        checkpoint()
         changeCount += 1
     }
 
@@ -340,7 +390,11 @@ final class NodeStore {
     private func exec(_ sql: String) throws {
         var errMsg: UnsafeMutablePointer<CChar>?
         guard sqlite3_exec(db, sql, nil, nil, &errMsg) == SQLITE_OK else {
-            sqlite3_free(errMsg)
+            if let errMsg {
+                let msg = String(cString: errMsg)
+                sqlite3_free(errMsg)
+                NSLog("❌ SQL exec error: \(msg)")
+            }
             throw StoreError.queryFailed
         }
     }

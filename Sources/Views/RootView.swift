@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// Root view: sidebar + detail, the main app shell.
+/// Root view: sidebar + detail.
+/// Clean navigation following Apple HIG — max 2 levels, SF Symbols, grouped.
 struct RootView: View {
     @Environment(NodeStore.self) private var store
     @State private var selectedScreen: Screen = .today
@@ -9,32 +10,46 @@ struct RootView: View {
 
     enum Screen: String, CaseIterable, Identifiable, Hashable {
         case today = "Today"
+        case chat = "Chat"
         case projects = "Projects"
         case notes = "Notes"
         case tasks = "Tasks"
-        case people = "People"
-        case events = "Events"
-        case sources = "Sources"
         case timeline = "Timeline"
-        case inbox = "Inbox"
-        case clarification = "Clarification"
+        case people = "People"
+        case sources = "Sources"
 
         var id: String { rawValue }
 
         var icon: String {
             switch self {
             case .today: "square.grid.2x2"
+            case .chat: "brain.head.profile"
             case .projects: "folder"
-            case .notes: "note.text"
+            case .notes: "doc.text"
             case .tasks: "checklist"
-            case .people: "person.2"
-            case .events: "calendar"
-            case .sources: "link"
             case .timeline: "clock"
-            case .inbox: "tray"
-            case .clarification: "questionmark.app"
+            case .people: "person.2"
+            case .sources: "link"
             }
         }
+        
+        /// Group for sidebar sections
+        var group: String {
+            switch self {
+            case .today, .chat: "Home"
+            case .projects, .notes, .tasks: "Organize"
+            case .timeline, .people, .sources: "Browse"
+            }
+        }
+    }
+    
+    /// Screens grouped by section
+    private var groupedScreens: [(String, [Screen])] {
+        let allScreens: [Screen] = [.today, .chat, .projects, .notes, .tasks, .timeline, .people, .sources]
+        let groups = Dictionary(grouping: allScreens) { $0.group }
+        return [("Home", groups["Home"] ?? []),
+                ("Organize", groups["Organize"] ?? []),
+                ("Browse", groups["Browse"] ?? [])]
     }
 
     var body: some View {
@@ -47,20 +62,7 @@ struct RootView: View {
             if let node = selectedNode {
                 InspectorPanel(node: node)
             } else {
-                VStack(spacing: 12) {
-                    Spacer()
-                    Image(systemName: "sidebar.right")
-                        .font(.system(size: 32))
-                        .foregroundStyle(.tertiary)
-                    Text("Select an item")
-                        .font(.headline)
-                        .foregroundStyle(.secondary)
-                    Text("Click any card to inspect it")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                    Spacer()
-                }
-                .frame(maxWidth: .infinity)
+                inspectorEmptyState
             }
         }
         .onChange(of: selectedNode) { _, newNode in
@@ -68,10 +70,10 @@ struct RootView: View {
         }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
-                QuickAddBar()
-                Button("Inspector", systemImage: "sidebar.right") {
-                    showInspector.toggle()
+                Button { showInspector.toggle() } label: {
+                    Image(systemName: "sidebar.right")
                 }
+                .help("Inspector")
             }
         }
     }
@@ -80,36 +82,38 @@ struct RootView: View {
 
     private var sidebar: some View {
         List(selection: $selectedScreen) {
-            Section("Home") {
-                Label(Screen.today.rawValue, systemImage: Screen.today.icon)
-                    .tag(Screen.today)
-            }
-
-            Section("Content") {
-                ForEach([Screen.projects, .notes, .tasks, .people, .events, .sources]) { s in
-                    Label(s.rawValue, systemImage: s.icon).tag(s)
+            ForEach(groupedScreens, id: \.0) { groupName, screens in
+                Section(groupName) {
+                    ForEach(screens) { screen in
+                        Label {
+                            Text(screen.rawValue)
+                        } icon: {
+                            Image(systemName: screen.icon)
+                        }
+                        .tag(screen)
+                    }
                 }
             }
-
-            Section("Review") {
-                Label(Screen.timeline.rawValue, systemImage: Screen.timeline.icon)
-                    .tag(Screen.timeline)
-                Label(Screen.inbox.rawValue, systemImage: Screen.inbox.icon)
-                    .tag(Screen.inbox)
-                Label(Screen.clarification.rawValue, systemImage: Screen.clarification.icon)
-                    .tag(Screen.clarification)
-            }
-
-            // Projects in sidebar
-            if !store.activeNodes(ofType: .project).isEmpty {
-                Section("Active Projects") {
-                    ForEach(store.activeNodes(ofType: .project)) { p in
-                        Label(p.title, systemImage: "folder.fill")
-                            .tag(Screen.projects)
-                            .onTapGesture(count: 2) {
-                                selectedNode = p
-                                showInspector = true
-                            }
+            
+            // Active projects inline
+            let projects = store.activeNodes(ofType: .project)
+                .sorted { ($0.pinned ? 1 : 0) + $0.relevance > ($1.pinned ? 1 : 0) + $1.relevance }
+                .prefix(5)
+            
+            if !projects.isEmpty {
+                Section("Projects") {
+                    ForEach(Array(projects)) { project in
+                        Label {
+                            Text(project.title)
+                                .lineLimit(1)
+                        } icon: {
+                            Image(systemName: project.pinned ? "folder.fill" : "folder")
+                        }
+                        .tag(Screen.projects)
+                        .onTapGesture(count: 2) {
+                            selectedNode = project
+                            showInspector = true
+                        }
                     }
                 }
             }
@@ -124,15 +128,32 @@ struct RootView: View {
     private var detailView: some View {
         switch selectedScreen {
         case .today: TodayView(selectedNode: $selectedNode)
+        case .chat: ChatView(selectedNode: $selectedNode)
         case .projects: ProjectListView(selectedNode: $selectedNode)
         case .notes: NodeListView(type: .note, selectedNode: $selectedNode)
         case .tasks: NodeListView(type: .task, selectedNode: $selectedNode)
-        case .people: NodeListView(type: .person, selectedNode: $selectedNode)
-        case .events: NodeListView(type: .event, selectedNode: $selectedNode)
-        case .sources: NodeListView(type: .source, selectedNode: $selectedNode)
         case .timeline: TimelineView(selectedNode: $selectedNode)
-        case .inbox: InboxView(selectedNode: $selectedNode)
-        case .clarification: ClarificationView(selectedNode: $selectedNode)
+        case .people: NodeListView(type: .person, selectedNode: $selectedNode)
+        case .sources: NodeListView(type: .source, selectedNode: $selectedNode)
         }
+    }
+    
+    // MARK: - Inspector Empty State
+    
+    private var inspectorEmptyState: some View {
+        VStack(spacing: 12) {
+            Spacer()
+            Image(systemName: "sidebar.right")
+                .font(.system(size: 32))
+                .foregroundStyle(.tertiary)
+            Text("Select an item")
+                .font(Theme.Font.cardTitle())
+                .foregroundStyle(.secondary)
+            Text("Click any card to inspect it")
+                .font(Theme.Font.caption())
+                .foregroundStyle(.tertiary)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
     }
 }

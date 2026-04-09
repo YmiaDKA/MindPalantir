@@ -7,7 +7,10 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "MindPalantir",
-            path: "Sources"
+            path: "Sources",
+            linkerSettings: [
+                .linkedLibrary("sqlite3"),
+            ]
         ),
     ]
 )

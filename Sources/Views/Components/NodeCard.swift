@@ -42,50 +42,6 @@ struct NodeCard: View {
     }
 }
 
-/// Task-specific row with status toggle.
-struct TaskRow: View {
-    @Environment(NodeStore.self) private var store
-    let task: MindNode
-    @Binding var selectedNode: MindNode?
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Button {
-                toggleDone()
-            } label: {
-                Image(systemName: task.status == .completed ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(task.status == .completed ? .green : .secondary)
-            }
-            .buttonStyle(.plain)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(task.title)
-                    .strikethrough(task.status == .completed)
-                    .lineLimit(1)
-                if let due = task.dueDate {
-                    Text("Due \(due, style: .date)")
-                        .font(.caption2)
-                        .foregroundStyle(due < .now ? .red : .secondary)
-                }
-            }
-
-            Spacer()
-
-            RelevanceBar(value: task.relevance).frame(width: 30, height: 3)
-        }
-        .padding(.vertical, 2)
-        .contentShape(Rectangle())
-        .onTapGesture { selectedNode = task }
-    }
-
-    private func toggleDone() {
-        var updated = task
-        updated.status = task.status == .completed ? .active : .completed
-        updated.updatedAt = .now
-        try? store.insertNode(updated)
-    }
-}
-
 /// Clarification card — shows uncertainty.
 struct ClarificationCard: View {
     let node: MindNode

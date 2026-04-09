@@ -1,346 +1,300 @@
 import SwiftUI
 
-/// The main desktop view — a living brain snapshot.
-/// Cards are positioned in zones with visible connection lines.
-/// Click to drill into projects/items like opening folders.
+/// The "desk" — shows what matters NOW.
+/// Inspired by Things 3: one focus, minimal chrome, no clutter.
 struct TodayView: View {
     @Environment(NodeStore.self) private var store
     @Binding var selectedNode: MindNode?
-    @State private var expandedProject: MindNode?
-
-    var body: some View {
-        GeometryReader { geo in
-            ScrollView([.horizontal, .vertical]) {
-                ZStack(alignment: .topLeading) {
-                    // Connection lines behind everything
-                    connectionLines
-
-                    // Cards positioned on the canvas
-                    VStack(alignment: .leading, spacing: 0) {
-                        // Row 1: Main project + its children
-                        HStack(alignment: .top, spacing: 16) {
-                            // Main project card
-                            if let project = mainProject {
-                                ProjectCard(node: project, isExpanded: expandedProject?.id == project.id, selectedNode: $selectedNode, onExpand: {
-                                    withAnimation(.easeInOut(duration: 0.2)) {
-                                        expandedProject = (expandedProject?.id == project.id) ? nil : project
-                                    }
-                                })
-                                .frame(width: 280)
-
-                                // Expanded children
-                                if expandedProject?.id == project.id {
-                                    expandedChildrenView(for: project)
-                                        .transition(.opacity.combined(with: .move(edge: .leading)))
-                                }
-                            }
-
-                            Spacer()
-
-                            // People & Events zone
-                            VStack(alignment: .trailing, spacing: 8) {
-                                ForEach(importantPeopleAndEvents.prefix(4)) { node in
-                                    SmallCard(node: node, selectedNode: $selectedNode)
-                                        .frame(width: 160)
-                                }
-                            }
-                        }
-                        .padding(.bottom, 20)
-
-                        // Row 2: Active tasks + recent notes
-                        HStack(alignment: .top, spacing: 16) {
-                            // Tasks column
-                            VStack(alignment: .leading, spacing: 6) {
-                                sectionLabel("Active Tasks", count: openTasks.count)
-                                ForEach(openTasks.prefix(6)) { task in
-                                    TaskRow(task: task, selectedNode: $selectedNode)
-                                }
-                            }
-                            .frame(width: 320)
-
-                            Spacer()
-
-                            // Recent notes column
-                            VStack(alignment: .leading, spacing: 6) {
-                                sectionLabel("Recent Notes", count: recentNotes.count)
-                                ForEach(recentNotes.prefix(4)) { note in
-                                    NoteCard(node: note, selectedNode: $selectedNode)
-                                        .frame(width: 240)
-                                }
-                            }
-                        }
-                        .padding(.bottom, 20)
-
-                        // Row 3: Other projects + clarification
-                        HStack(alignment: .top, spacing: 16) {
-                            // Other projects
-                            let otherProjects = store.activeNodes(ofType: .project).filter { $0.id != mainProject?.id }
-                            if !otherProjects.isEmpty {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    sectionLabel("Other Projects", count: otherProjects.count)
-                                    ForEach(otherProjects.prefix(4)) { project in
-                                        ProjectCard(node: project, isExpanded: false, selectedNode: $selectedNode, onExpand: {
-                                            selectedNode = project
-                                        })
-                                        .frame(width: 220)
-                                    }
-                                }
-                            }
-
-                            Spacer()
-
-                            // Needs clarification
-                            let uncertain = store.uncertainNodes(limit: 3)
-                            if !uncertain.isEmpty {
-                                VStack(alignment: .trailing, spacing: 8) {
-                                    sectionLabel("Needs Input", count: uncertain.count, color: .orange)
-                                    ForEach(uncertain) { node in
-                                        ClarificationMiniCard(node: node, selectedNode: $selectedNode)
-                                            .frame(width: 200)
-                                    }
-                                }
-                            }
-                        }
-
-                        // Bottom: Quick add + stats
-                        HStack {
-                            QuickAddBar()
-                                .frame(width: 300)
-                            Spacer()
-                            statsView
-                        }
-                        .padding(.top, 20)
-                    }
-                    .padding(24)
-                }
-                .frame(minWidth: geo.size.width, minHeight: geo.size.height, alignment: .topLeading)
-            }
-        }
-        .navigationTitle("Today")
+    
+    // What matters right now
+    private var focusProject: MindNode? {
+        store.activeNodes(ofType: .project)
+            .filter { $0.pinned || $0.relevance > 0.7 }
+            .sorted { ($0.pinned ? 1 : 0) + $0.relevance > ($1.pinned ? 1 : 0) + $1.relevance }
+            .first
     }
-
-    // MARK: - Connection Lines
-
-    @ViewBuilder
-    private var connectionLines: some View {
-        // Visual connection indicators between related items
-        Canvas { context, size in
-            guard let project = mainProject else { return }
-            let connected = store.connectedNodes(for: project.id)
-
-            // Draw lines from project position to connected items
-            let projectCenter = CGPoint(x: 300, y: 80)
-
-            for (i, node) in connected.prefix(8).enumerated() {
-                let angle = Double(i) * (.pi / 4) + .pi / 8
-                let radius: Double = 120 + Double(i) * 20
-                let endX = projectCenter.x + cos(angle) * radius
-                let endY = projectCenter.y + sin(angle) * radius
-
-                var path = Path()
-                path.move(to: projectCenter)
-                path.addLine(to: CGPoint(x: endX, y: endY))
-
-                context.stroke(path, with: .color(.secondary.opacity(0.2)), lineWidth: 1)
-
-                // Dot at connection point
-                let dotRect = CGRect(x: endX - 3, y: endY - 3, width: 6, height: 6)
-                context.fill(Path(ellipseIn: dotRect), with: .color(node.type.color.opacity(0.5)))
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .allowsHitTesting(false)
-    }
-
-    // MARK: - Expanded Children
-
-    private func expandedChildrenView(for project: MindNode) -> some View {
-        let tasks = store.children(of: project.id, linkType: .belongsTo).filter { $0.type == .task }
-        let notes = store.children(of: project.id, linkType: .belongsTo).filter { $0.type == .note }
-        let people = store.children(of: project.id, linkType: .belongsTo).filter { $0.type == .person }
-
-        return VStack(alignment: .leading, spacing: 12) {
-            if !tasks.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Tasks").font(.caption.bold()).foregroundStyle(.secondary)
-                    ForEach(tasks.prefix(5)) { task in
-                        TaskRow(task: task, selectedNode: $selectedNode)
-                    }
-                }
-            }
-            if !notes.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Notes").font(.caption.bold()).foregroundStyle(.secondary)
-                    ForEach(notes.prefix(3)) { note in
-                        SmallCard(node: note, selectedNode: $selectedNode)
-                    }
-                }
-            }
-            if !people.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("People").font(.caption.bold()).foregroundStyle(.secondary)
-                    ForEach(people) { person in
-                        SmallCard(node: person, selectedNode: $selectedNode)
-                    }
-                }
-            }
-        }
-        .padding(12)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
-    }
-
-    // MARK: - Computed
-
-    private var mainProject: MindNode? {
-        store.activeNodes(ofType: .project).first
-    }
-
+    
     private var openTasks: [MindNode] {
-        store.activeNodes(ofType: .task).filter { $0.status != .completed }
+        store.activeNodes(ofType: .task)
+            .filter { $0.status != .completed }
+            .sorted { $0.relevance > $1.relevance }
+            .prefix(5)
+            .map { $0 }
     }
-
-    private var recentNotes: [MindNode] {
-        store.nodes(ofType: .note).prefix(5).map { $0 }
+    
+    private var recentActivity: [MindNode] {
+        store.recentNodes(days: 3, limit: 8)
     }
-
-    private var importantPeopleAndEvents: [MindNode] {
-        let people = store.activeNodes(ofType: .person).filter { $0.relevance > 0.3 }
-        let events = store.activeNodes(ofType: .event).filter { $0.relevance > 0.3 }
-        return (people + events).sorted { $0.relevance > $1.relevance }
-    }
-
-    // MARK: - UI Helpers
-
-    private func sectionLabel(_ title: String, count: Int, color: Color = .secondary) -> some View {
-        HStack(spacing: 4) {
-            Text(title).font(.caption.bold()).foregroundStyle(color)
-            Text("(\(count))").font(.caption2).foregroundStyle(.tertiary)
+    
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: Theme.Spacing.xl) {
+                // Quick add at top
+                quickAdd
+                
+                // Focus: one project in detail
+                if let project = focusProject {
+                    focusSection(project)
+                }
+                
+                // Tasks: compact list
+                if !openTasks.isEmpty {
+                    tasksSection
+                }
+                
+                // Recent: timeline strip
+                if !recentActivity.isEmpty {
+                    recentSection
+                }
+            }
+            .padding(.horizontal, Theme.Spacing.lg)
+            .padding(.vertical, Theme.Spacing.md)
         }
     }
-
-    private var statsView: some View {
-        HStack(spacing: 16) {
-            statItem("\(store.nodes.count)", "nodes", .blue)
-            statItem("\(store.links.count)", "links", .green)
-            statItem("\(store.activeNodes(ofType: .task).filter { $0.status != .completed }.count)", "tasks", .orange)
-        }
-        .font(.caption2)
+    
+    // MARK: - Quick Add
+    
+    private var quickAdd: some View {
+        QuickAddBar()
+            .frame(maxWidth: 400)
     }
-
-    private func statItem(_ value: String, _ label: String, _ color: Color) -> some View {
-        VStack(spacing: 2) {
-            Text(value).font(.title3.bold()).foregroundStyle(color)
-            Text(label).foregroundStyle(.secondary)
+    
+    // MARK: - Focus Section
+    
+    private func focusSection(_ project: MindNode) -> some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.md) {
+            // Section label
+            Text("FOCUS")
+                .font(Theme.Font.tiny())
+                .foregroundStyle(.tertiary)
+                .tracking(1)
+            
+            // Hero card
+            FocusCard(project: project, store: store, selectedNode: $selectedNode)
+        }
+    }
+    
+    // MARK: - Tasks Section
+    
+    private var tasksSection: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+            HStack {
+                Text("TASKS")
+                    .font(Theme.Font.tiny())
+                    .foregroundStyle(.tertiary)
+                    .tracking(1)
+                
+                Text("\(openTasks.count)")
+                    .font(Theme.Font.tiny())
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(.quaternary, in: Capsule())
+                
+                Spacer()
+            }
+            
+            VStack(spacing: 1) {
+                ForEach(openTasks) { task in
+                    TaskRow(task: task, selectedNode: $selectedNode)
+                }
+            }
+            .background(Color(NSColor.controlBackgroundColor), in: RoundedRectangle(cornerRadius: Theme.Radius.card))
+        }
+    }
+    
+    // MARK: - Recent Section
+    
+    private var recentSection: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+            Text("RECENT")
+                .font(Theme.Font.tiny())
+                .foregroundStyle(.tertiary)
+                .tracking(1)
+            
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: Theme.Spacing.sm) {
+                    ForEach(recentActivity) { node in
+                        RecentChip(node: node, selectedNode: $selectedNode)
+                    }
+                }
+            }
         }
     }
 }
 
-// MARK: - Card Types
+// MARK: - Focus Card (hero project)
 
-/// Project card with expand/collapse.
-struct ProjectCard: View {
-    let node: MindNode
-    let isExpanded: Bool
+struct FocusCard: View {
+    let project: MindNode
+    let store: NodeStore
     @Binding var selectedNode: MindNode?
-    let onExpand: () -> Void
-
+    
+    private var tasks: [MindNode] {
+        store.children(of: project.id, linkType: .belongsTo).filter { $0.type == .task }
+    }
+    private var completedTasks: [MindNode] {
+        tasks.filter { $0.status == .completed }
+    }
+    private var connections: Int {
+        store.linksFor(nodeID: project.id).count
+    }
+    
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Image(systemName: "folder.fill").foregroundStyle(.blue)
-                Text(node.title).font(.headline).lineLimit(1)
+        VStack(alignment: .leading, spacing: Theme.Spacing.md) {
+            // Title row
+            HStack(spacing: Theme.Spacing.sm) {
+                Image(systemName: "folder.fill")
+                    .font(.system(size: 18))
+                    .foregroundStyle(Theme.Colors.typeColor(.project))
+                
+                Text(project.title)
+                    .font(Theme.Font.largeTitle())
+                    .lineLimit(2)
+                
                 Spacer()
-                if node.pinned {
-                    Image(systemName: "pin.fill").font(.caption2).foregroundStyle(.orange)
+                
+                if project.pinned {
+                    Image(systemName: "pin.fill")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
                 }
-                Button(action: onExpand) {
-                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                        .font(.caption)
+            }
+            
+            // Description
+            if !project.body.isEmpty {
+                Text(project.body)
+                    .font(Theme.Font.body())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(3)
+            }
+            
+            // Stats row
+            HStack(spacing: Theme.Spacing.lg) {
+                // Progress
+                if !tasks.isEmpty {
+                    HStack(spacing: 6) {
+                        ProgressView(value: Double(completedTasks.count), total: Double(tasks.count))
+                            .frame(width: 60)
+                            .tint(Theme.Colors.relevance(project.relevance))
+                        Text("\(completedTasks.count)/\(tasks.count)")
+                            .font(Theme.Font.caption())
+                            .foregroundStyle(.secondary)
+                    }
                 }
-                .buttonStyle(.plain)
-            }
-
-            if !node.body.isEmpty {
-                Text(node.body).font(.caption).foregroundStyle(.secondary).lineLimit(2)
-            }
-
-            HStack {
-                ConfidenceBadge(value: node.confidence)
-                RelevanceBar(value: node.relevance).frame(width: 40, height: 3)
+                
+                // Connections
+                Label("\(connections)", systemImage: "link")
+                    .font(Theme.Font.caption())
+                    .foregroundStyle(.secondary)
+                
+                // Relevance
+                HStack(spacing: 4) {
+                    Capsule()
+                        .fill(.quaternary)
+                        .frame(width: 40, height: 3)
+                    Capsule()
+                        .fill(Theme.Colors.relevance(project.relevance))
+                        .frame(width: 40 * project.relevance, height: 3)
+                }
+                
                 Spacer()
-                Text(node.status.rawValue).font(.caption2).foregroundStyle(.tertiary)
+                
+                Text(project.status.rawValue.capitalized)
+                    .font(Theme.Font.caption())
+                    .foregroundStyle(.tertiary)
             }
         }
-        .padding(12)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .strokeBorder(.blue.opacity(isExpanded ? 0.5 : 0.15), lineWidth: isExpanded ? 2 : 1)
+        .padding(Theme.Spacing.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: Theme.Radius.card)
+                .fill(Color(NSColor.controlBackgroundColor))
         )
-        .onTapGesture { selectedNode = node }
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.Radius.card)
+                .strokeBorder(Theme.Colors.accent.opacity(0.15), lineWidth: 1)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture { selectedNode = project }
     }
 }
 
-/// Small card for people, events, sources.
-struct SmallCard: View {
-    let node: MindNode
-    @Binding var selectedNode: MindNode?
+// MARK: - Task Row
 
+struct TaskRow: View {
+    @Environment(NodeStore.self) private var store
+    let task: MindNode
+    @Binding var selectedNode: MindNode?
+    
     var body: some View {
-        HStack(spacing: 8) {
-            Text(node.type.icon).font(.caption)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(node.title).font(.caption.bold()).lineLimit(1)
-                if !node.body.isEmpty {
-                    Text(node.body).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-                }
+        HStack(spacing: Theme.Spacing.md) {
+            // Checkbox
+            Button { toggleComplete() } label: {
+                Image(systemName: task.status == .completed ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 15))
+                    .foregroundStyle(task.status == .completed ? .green : .secondary)
             }
+            .buttonStyle(.plain)
+            
+            // Title
+            Text(task.title)
+                .font(Theme.Font.body())
+                .lineLimit(1)
+                .strikethrough(task.status == .completed)
+            
             Spacer()
+            
+            // Due date if present
+            if let due = task.dueDate {
+                Text(due, style: .relative)
+                    .font(Theme.Font.caption())
+                    .foregroundStyle(due < Date() ? AnyShapeStyle(.red) : AnyShapeStyle(.tertiary))
+            }
+            
+            // Relevance dot
+            Circle()
+                .fill(Theme.Colors.relevance(task.relevance))
+                .frame(width: 5, height: 5)
         }
-        .padding(8)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-        .onTapGesture { selectedNode = node }
+        .padding(.horizontal, Theme.Spacing.md)
+        .padding(.vertical, Theme.Spacing.sm)
+        .contentShape(Rectangle())
+        .onTapGesture { selectedNode = task }
+    }
+    
+    private func toggleComplete() {
+        var updated = task
+        updated.status = task.status == .completed ? .active : .completed
+        updated.updatedAt = .now
+        try? store.insertNode(updated)
     }
 }
 
-/// Note card.
-struct NoteCard: View {
+// MARK: - Recent Chip
+
+struct RecentChip: View {
     let node: MindNode
     @Binding var selectedNode: MindNode?
-
+    
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(node.title).font(.subheadline.bold()).lineLimit(1)
-            if !node.body.isEmpty {
-                Text(node.body).font(.caption).foregroundStyle(.secondary).lineLimit(3)
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 4) {
+                Text(node.type.icon)
+                    .font(.system(size: 11))
+                Text(node.updatedAt, style: .relative)
+                    .font(Theme.Font.tiny())
+                    .foregroundStyle(.tertiary)
             }
-            HStack {
-                ConfidenceBadge(value: node.confidence)
-                Spacer()
-                Text(node.updatedAt, style: .relative).font(.caption2).foregroundStyle(.tertiary)
-            }
+            
+            Text(node.title)
+                .font(Theme.Font.caption())
+                .lineLimit(2)
+                .frame(width: 120, alignment: .leading)
         }
-        .padding(10)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-        .onTapGesture { selectedNode = node }
-    }
-}
-
-/// Mini clarification card.
-struct ClarificationMiniCard: View {
-    let node: MindNode
-    @Binding var selectedNode: MindNode?
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.caption2).foregroundStyle(.orange)
-            Text(node.title).font(.caption.bold()).lineLimit(1)
-            Spacer()
-            ConfidenceBadge(value: node.confidence)
-        }
-        .padding(8)
-        .background(.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+        .padding(Theme.Spacing.sm)
+        .background(Color(NSColor.controlBackgroundColor).opacity(0.6), in: RoundedRectangle(cornerRadius: Theme.Radius.chip))
+        .contentShape(Rectangle())
         .onTapGesture { selectedNode = node }
     }
 }
