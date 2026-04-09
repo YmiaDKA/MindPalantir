@@ -109,16 +109,19 @@ struct RootView: View {
                 Button { selectedScreen = .today } label: {
                     Image(systemName: "plus.circle")
                 }
+                .controlSize(.small)
                 .keyboardShortcut("n", modifiers: .command)
                 .help("Quick Add (⌘N)")
 
                 Button { showInspector.toggle() } label: {
                     Image(systemName: "sidebar.right")
                 }
+                .controlSize(.small)
                 .keyboardShortcut("i", modifiers: .command)
                 .help("Inspector (⌘I)")
             }
         }
+        .navigationTitle("")
     }
 
     // MARK: - Sidebar
