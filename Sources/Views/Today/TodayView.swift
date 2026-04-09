@@ -532,14 +532,23 @@ struct TaskRow: View {
 // MARK: - Recent Chip
 
 struct RecentChip: View {
+    @Environment(NodeStore.self) private var store
     let node: MindNode
     @Binding var selectedNode: MindNode?
-    
+
+    private var parentProject: MindNode? {
+        store.links.values
+            .filter { $0.targetID == node.id && $0.linkType == .belongsTo }
+            .compactMap { store.nodes[$0.sourceID] }
+            .first { $0.type == .project }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 4) {
                 Image(systemName: node.type.sfIcon)
                     .font(.system(size: 11))
+                    .foregroundStyle(Theme.Colors.typeColor(node.type))
                 Text(node.updatedAt, style: .relative)
                     .font(Theme.Fonts.tiny)
                     .foregroundStyle(.tertiary)
@@ -549,6 +558,13 @@ struct RecentChip: View {
                 .font(Theme.Fonts.caption)
                 .lineLimit(2)
                 .frame(width: 120, alignment: .leading)
+
+            if let project = parentProject {
+                Text(project.title)
+                    .font(Theme.Fonts.tiny)
+                    .foregroundStyle(Theme.Colors.accent.opacity(0.7))
+                    .lineLimit(1)
+            }
         }
         .padding(Theme.Spacing.sm)
         .background(Color(NSColor.controlBackgroundColor).opacity(0.6), in: RoundedRectangle(cornerRadius: Theme.Radius.chip))
