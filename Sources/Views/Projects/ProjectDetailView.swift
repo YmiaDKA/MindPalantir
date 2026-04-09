@@ -6,6 +6,8 @@ struct ProjectDetailView: View {
     @Environment(NodeStore.self) private var store
     let project: MindNode
     @Binding var selectedNode: MindNode?
+    @State private var newTaskText = ""
+    @State private var newNoteText = ""
 
     // MARK: - Derived Data
 
@@ -111,6 +113,9 @@ struct ProjectDetailView: View {
                     if !tasks.isEmpty {
                         tasksCard
                     }
+
+                    // Notes card
+                    notesCard
 
                     // Activity card
                     if !recentActivity.isEmpty {
@@ -279,6 +284,19 @@ struct ProjectDetailView: View {
                         .foregroundStyle(.tertiary)
                         .padding(.top, 4)
                 }
+
+                // Inline quick add
+                Divider().padding(.vertical, Theme.Spacing.xs)
+                HStack(spacing: Theme.Spacing.sm) {
+                    Image(systemName: "plus.circle")
+                        .font(.system(size: 13))
+                        .foregroundStyle(Theme.Colors.accent)
+                    TextField("Add task...", text: $newTaskText)
+                        .font(Theme.Fonts.body)
+                        .textFieldStyle(.plain)
+                        .onSubmit { addQuickTask() }
+                }
+                .padding(.vertical, 2)
             }
         }
     }
@@ -314,6 +332,70 @@ struct ProjectDetailView: View {
         .padding(.vertical, 5)
         .contentShape(Rectangle())
         .onTapGesture { selectedNode = task }
+    }
+
+    // MARK: - Notes Card
+
+    private var notesCard: some View {
+        DashboardCard(title: "Notes", icon: "note.text", count: notes.count) {
+            VStack(spacing: Theme.Spacing.xs) {
+                if notes.isEmpty {
+                    Text("No notes yet")
+                        .font(Theme.Fonts.caption)
+                        .foregroundStyle(.tertiary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    ForEach(notes.prefix(5)) { note in
+                        HStack(spacing: Theme.Spacing.sm) {
+                            Image(systemName: "note.text")
+                                .font(.system(size: 11))
+                                .foregroundStyle(Theme.Colors.typeColor(.note))
+                                .frame(width: 14)
+
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(note.title)
+                                    .font(Theme.Fonts.body)
+                                    .lineLimit(1)
+                                if !note.body.isEmpty {
+                                    Text(note.body)
+                                        .font(Theme.Fonts.caption)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(2)
+                                }
+                            }
+
+                            Spacer()
+
+                            Text(note.updatedAt, style: .relative)
+                                .font(Theme.Fonts.caption)
+                                .foregroundStyle(.tertiary)
+                        }
+                        .padding(.vertical, 2)
+                        .contentShape(Rectangle())
+                        .onTapGesture { selectedNode = note }
+                    }
+
+                    if notes.count > 5 {
+                        Text("+ \(notes.count - 5) more")
+                            .font(Theme.Fonts.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+
+                // Inline quick add
+                Divider().padding(.vertical, Theme.Spacing.xs)
+                HStack(spacing: Theme.Spacing.sm) {
+                    Image(systemName: "plus.circle")
+                        .font(.system(size: 13))
+                        .foregroundStyle(Theme.Colors.accent)
+                    TextField("Add note...", text: $newNoteText)
+                        .font(Theme.Fonts.body)
+                        .textFieldStyle(.plain)
+                        .onSubmit { addQuickNote() }
+                }
+                .padding(.vertical, 2)
+            }
+        }
     }
 
     // MARK: - Activity Card
@@ -666,6 +748,32 @@ struct ProjectDetailView: View {
         updated.status = node.status == .completed ? .active : .completed
         updated.updatedAt = .now
         try? store.insertNode(updated)
+    }
+
+    private func addQuickTask() {
+        let trimmed = newTaskText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        let task = MindNode(type: .task, title: trimmed, sourceOrigin: "project_add")
+        try? store.insertNode(task)
+
+        let link = MindLink(sourceID: project.id, targetID: task.id, linkType: .belongsTo)
+        try? store.insertLink(link)
+
+        newTaskText = ""
+    }
+
+    private func addQuickNote() {
+        let trimmed = newNoteText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        let note = MindNode(type: .note, title: trimmed, sourceOrigin: "project_add")
+        try? store.insertNode(note)
+
+        let link = MindLink(sourceID: project.id, targetID: note.id, linkType: .belongsTo)
+        try? store.insertLink(link)
+
+        newNoteText = ""
     }
 
     /// Link an existing node to this project (from discovered/related)
