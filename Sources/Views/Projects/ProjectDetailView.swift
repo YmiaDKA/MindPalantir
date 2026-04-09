@@ -586,6 +586,9 @@ struct ProjectDetailView: View {
     }
 
     private func importFile(_ file: FileIngestor.FileInfo) {
+        // Dedup: skip if path already imported
+        guard !importedWatchedPaths.contains(file.path) else { return }
+
         let node = MindNode(
             type: .source,
             title: file.name,

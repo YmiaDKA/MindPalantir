@@ -180,9 +180,13 @@ struct FileIngestor {
     @MainActor
     static func importToStore(_ result: ScanResult, store: NodeStore) {
         var imported = 0
-        
+        let existingPaths = Set(store.nodes.values.compactMap { $0.metadata["path"] })
+
         // Import interesting files as Source nodes
         for file in result.files.prefix(50) {
+            // Dedup: skip if path already imported
+            guard !existingPaths.contains(file.path) else { continue }
+
             let node = MindNode(
                 type: .source,
                 title: file.name,

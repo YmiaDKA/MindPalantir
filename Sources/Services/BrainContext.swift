@@ -173,19 +173,33 @@ struct BrainContext {
 
         pack.focus = [project]
 
-        // Direct children via belongsTo
+        // Direct children via belongsTo (tasks, notes, people, events)
         let children = store.children(of: project.id, linkType: .belongsTo)
-        pack.connected = children.sorted { $0.relevance > $1.relevance }.prefix(10).map { $0 }
+        pack.connected = children.sorted { $0.relevance > $1.relevance }.prefix(12).map { $0 }
 
-        // Other connections
-        let otherConnections = store.connectedNodes(for: project.id)
-            .filter { !children.contains($0) }
-        pack.nearby = otherConnections.prefix(5).map { $0 }
+        // Sources via fromSource
+        let sources = store.children(of: project.id, linkType: .fromSource)
+        pack.connected.append(contentsOf: sources.prefix(5))
+
+        // Recent activity for this project (last 7 days)
+        let cutoff = Date.now.addingTimeInterval(-7 * 86400)
+        let recentChildren = children
+            .filter { $0.updatedAt > cutoff }
+            .sorted { $0.updatedAt > $1.updatedAt }
+            .prefix(5)
+        pack.nearby = Array(recentChildren.filter { !pack.connected.contains($0) })
+
+        // Other connections not already included
+        let allConnected = store.connectedNodes(for: project.id)
+        let alreadyIncluded = Set(pack.connected.map(\.id) + pack.nearby.map(\.id) + [project.id])
+        let otherConnections = allConnected.filter { !alreadyIncluded.contains($0.id) }
+        pack.nearby.append(contentsOf: otherConnections.prefix(5))
 
         // Stats
         let tasks = children.filter { $0.type == .task }
         let completed = tasks.filter { $0.status == .completed }.count
-        pack.stats = "\(completed)/\(tasks.count) tasks done, \(store.linksFor(nodeID: project.id).count) connections"
+        let notes = children.filter { $0.type == .note }.count
+        pack.stats = "\(completed)/\(tasks.count) tasks done, \(notes) notes, \(sources.count) sources, \(store.linksFor(nodeID: project.id).count) connections"
 
         return pack
     }
@@ -282,8 +296,12 @@ struct BrainContext {
         // Connected items
         if !pack.connected.isEmpty {
             lines.append("## Related")
-            for node in pack.connected.prefix(8) {
-                lines.append("- \(node.type.emoji) \(node.title) [\(node.status.rawValue)]")
+            for node in pack.connected.prefix(10) {
+                var line = "- \(node.type.emoji) \(node.title) [\(node.status.rawValue)]"
+                if !node.body.isEmpty && node.body.count < 80 {
+                    line += " — \(node.body)"
+                }
+                lines.append(line)
             }
             lines.append("")
         }
@@ -291,8 +309,12 @@ struct BrainContext {
         // Nearby items
         if !pack.nearby.isEmpty {
             lines.append("## Nearby")
-            for node in pack.nearby.prefix(5) {
-                lines.append("- \(node.type.emoji) \(node.title)")
+            for node in pack.nearby.prefix(8) {
+                var line = "- \(node.type.emoji) \(node.title)"
+                if node.type == .task {
+                    line += " [\(node.status.rawValue)]"
+                }
+                lines.append(line)
             }
             lines.append("")
         }
