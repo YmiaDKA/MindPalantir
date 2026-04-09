@@ -126,7 +126,12 @@ final class NodeStore {
 
     private func migrateSchema() throws {
         // Add access_count column if missing (existing databases)
-        try? exec("ALTER TABLE nodes ADD COLUMN access_count INTEGER DEFAULT 0")
+        // Wrapped in do/catch because ALTER TABLE throws if column exists
+        do {
+            try exec("ALTER TABLE nodes ADD COLUMN access_count INTEGER DEFAULT 0")
+        } catch {
+            // Column already exists — fine
+        }
     }
 
     // MARK: - Node CRUD
