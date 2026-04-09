@@ -125,12 +125,22 @@ final class NodeStore {
     // MARK: - Migration
 
     private func migrateSchema() throws {
-        // Add access_count column if missing (existing databases)
-        // Wrapped in do/catch because ALTER TABLE throws if column exists
-        do {
-            try exec("ALTER TABLE nodes ADD COLUMN access_count INTEGER DEFAULT 0")
-        } catch {
-            // Column already exists — fine
+        // Check if column exists before attempting migration
+        var stmt: OpaquePointer?
+        if sqlite3_prepare_v2(db, "PRAGMA table_info(nodes)", -1, &stmt, nil) == SQLITE_OK {
+            var hasAccessCount = false
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                if let name = sqlite3_column_text(stmt, 1) {
+                    if String(cString: name) == "access_count" {
+                        hasAccessCount = true
+                        break
+                    }
+                }
+            }
+            sqlite3_finalize(stmt)
+            if !hasAccessCount {
+                try exec("ALTER TABLE nodes ADD COLUMN access_count INTEGER DEFAULT 0")
+            }
         }
     }
 
