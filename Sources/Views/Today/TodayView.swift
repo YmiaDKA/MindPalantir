@@ -375,8 +375,9 @@ struct SpatialFocusCard: View {
     let project: MindNode
     let store: NodeStore
     @Binding var selectedNode: MindNode?
-    var onOpenProject: ((MindNode) -> Void)?
-    
+    var onOpenProject: ((MindNode) -> Void)? = nil
+    @State private var isHovered = false
+
     private var tasks: [MindNode] {
         store.children(of: project.id, linkType: .belongsTo).filter { $0.type == .task }
     }
@@ -386,7 +387,7 @@ struct SpatialFocusCard: View {
     private var connections: Int {
         store.linksFor(nodeID: project.id).count
     }
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.lg) {
             // Title — big, bold, prominent
@@ -395,12 +396,12 @@ struct SpatialFocusCard: View {
                     .font(.system(size: 22))
                     .foregroundStyle(Theme.Colors.typeColor(.project))
                     .padding(.top, 2)
-                
+
                 VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
                     Text(project.title)
                         .font(.system(size: 28, weight: .bold, design: .default))
                         .foregroundStyle(.primary)
-                    
+
                     if !project.body.isEmpty {
                         Text(project.body)
                             .font(Theme.Fonts.body)
@@ -408,16 +409,16 @@ struct SpatialFocusCard: View {
                             .lineLimit(3)
                     }
                 }
-                
+
                 Spacer()
-                
+
                 if project.pinned {
                     Image(systemName: "pin.fill")
                         .font(.caption)
                         .foregroundStyle(.orange)
                 }
             }
-            
+
             // Stats — minimal, non-intrusive
             HStack(spacing: Theme.Spacing.lg) {
                 if !tasks.isEmpty {
@@ -430,13 +431,13 @@ struct SpatialFocusCard: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                
+
                 Label("\(connections)", systemImage: "link")
                     .font(Theme.Fonts.caption)
                     .foregroundStyle(.tertiary)
-                
+
                 Spacer()
-                
+
                 Text(project.status.rawValue.capitalized)
                     .font(Theme.Fonts.caption)
                     .foregroundStyle(.tertiary)
@@ -444,12 +445,15 @@ struct SpatialFocusCard: View {
         }
         .padding(Theme.Spacing.xl)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .spatialCard(shadow: Theme.Shadow.hero, radius: Theme.Radius.cardLarge)
+        .spatialCard(shadow: isHovered ? Theme.Shadow.elevated : Theme.Shadow.hero, radius: Theme.Radius.cardLarge)
         .overlay(
             RoundedRectangle(cornerRadius: Theme.Radius.cardLarge)
                 .strokeBorder(Theme.Colors.accent.opacity(0.1), lineWidth: 1)
         )
         .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.cardLarge))
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.15)) { isHovered = hovering }
+        }
         .onTapGesture {
             if let onOpenProject { onOpenProject(project) }
             else { selectedNode = project }
@@ -527,6 +531,7 @@ struct SpatialProjectChip: View {
     let project: MindNode
     let store: NodeStore
     let onTap: () -> Void
+    @State private var isHovered = false
 
     private var tasks: [MindNode] {
         store.children(of: project.id, linkType: .belongsTo).filter { $0.type == .task }
@@ -563,8 +568,11 @@ struct SpatialProjectChip: View {
         }
         .padding(.horizontal, Theme.Spacing.md)
         .padding(.vertical, Theme.Spacing.sm)
-        .spatialCard(shadow: Theme.Shadow.card, radius: Theme.Radius.chip)
+        .spatialCard(shadow: isHovered ? Theme.Shadow.elevated : Theme.Shadow.card, radius: Theme.Radius.chip)
         .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.chip))
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.15)) { isHovered = hovering }
+        }
         .onTapGesture(perform: onTap)
     }
 }

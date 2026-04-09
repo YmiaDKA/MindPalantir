@@ -155,6 +155,7 @@ struct DaySection: View {
 struct TimelineRow: View {
     let node: MindNode
     @Binding var selectedNode: MindNode?
+    @State private var isHovered = false
 
     var body: some View {
         HStack(spacing: Theme.Spacing.md) {
@@ -200,10 +201,15 @@ struct TimelineRow: View {
         .background(
             selectedNode?.id == node.id
                 ? Theme.Colors.accent.opacity(0.06)
-                : Color.clear,
+                : isHovered
+                    ? Color(NSColor.controlBackgroundColor).opacity(0.5)
+                    : Color.clear,
             in: RoundedRectangle(cornerRadius: Theme.Radius.chip)
         )
         .contentShape(Rectangle())
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.1)) { isHovered = hovering }
+        }
         .onTapGesture { selectedNode = node }
     }
 }

@@ -1,13 +1,16 @@
 import SwiftUI
 
 /// Card dashboard for a single project.
-/// Each section is a self-contained card panel — feels like a living workspace, not a flat list.
+/// Wiki-inspired: each project is a living knowledge page.
+/// Cards are interlinked, provenance is visible, knowledge compounds over time.
+/// Inspired by Karpathy's LLM Wiki — the project IS the persistent artifact.
 struct ProjectDetailView: View {
     @Environment(NodeStore.self) private var store
     let project: MindNode
     @Binding var selectedNode: MindNode?
     @State private var newTaskText = ""
     @State private var newNoteText = ""
+    @State private var showConnections = false
 
     // MARK: - Derived Data
 
@@ -107,6 +110,13 @@ struct ProjectDetailView: View {
                 // Overview card — always at top
                 overviewCard
 
+                // Wiki synthesis — the "living knowledge" card
+                // Shows what this project knows, not just what it contains
+                synthesisCard
+
+                // Connections mini-graph
+                connectionsCard
+
                 // Dashboard grid: two columns on wider screens
                 AdaptiveCardGrid {
                     // Tasks card
@@ -154,87 +164,125 @@ struct ProjectDetailView: View {
         .navigationTitle(project.title)
     }
 
-    // MARK: - Overview Card
+    // MARK: - Overview Card (wiki-style hero)
 
     private var overviewCard: some View {
-        VStack(alignment: .leading, spacing: Theme.Spacing.md) {
-            // Title row
-            HStack(spacing: Theme.Spacing.sm) {
-                Image(systemName: "folder.fill")
-                    .font(.system(size: 22))
-                    .foregroundStyle(Theme.Colors.typeColor(.project))
+        VStack(alignment: .leading, spacing: 0) {
+            // Accent gradient bar at top — like a wiki page header
+            LinearGradient(
+                colors: [Theme.Colors.accent.opacity(0.3), Theme.Colors.accent.opacity(0.05)],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            .frame(height: 3)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.cardLarge))
 
-                Text(project.title)
-                    .font(Theme.Fonts.largeTitle)
-                    .lineLimit(2)
+            VStack(alignment: .leading, spacing: Theme.Spacing.md) {
+                // Title row
+                HStack(alignment: .top, spacing: Theme.Spacing.sm) {
+                    Image(systemName: "folder.fill")
+                        .font(.system(size: 22))
+                        .foregroundStyle(Theme.Colors.typeColor(.project))
+                        .padding(.top, 2)
 
-                Spacer()
+                    VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+                        Text(project.title)
+                            .font(.system(size: 26, weight: .bold, design: .default))
+                            .lineLimit(2)
 
-                // Status pill
-                Text(project.status.rawValue.capitalized)
-                    .font(Theme.Fonts.caption)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(statusColor.opacity(0.12), in: Capsule())
-                    .foregroundStyle(statusColor)
+                        // Subtitle: status + confidence + last access
+                        HStack(spacing: Theme.Spacing.sm) {
+                            Text(project.status.rawValue.capitalized)
+                                .font(Theme.Fonts.caption)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(statusColor.opacity(0.12), in: Capsule())
+                                .foregroundStyle(statusColor)
 
-                ConfidenceBadge(value: project.confidence)
-            }
+                            ConfidenceBadge(value: project.confidence)
 
-            // Description
-            if !project.body.isEmpty {
-                Text(project.body)
-                    .font(Theme.Fonts.body)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(4)
-            }
+                            Text("·")
+                                .foregroundStyle(.tertiary)
 
-            // Progress bar (full width)
-            if !tasks.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text("\(completedTasks.count)/\(tasks.count) tasks")
-                            .font(Theme.Fonts.caption)
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        Text("\(Int(Double(completedTasks.count) / Double(tasks.count) * 100))%")
-                            .font(Theme.Fonts.caption.monospaced())
-                            .foregroundStyle(.secondary)
-                    }
-                    GeometryReader { geo in
-                        ZStack(alignment: .leading) {
-                            Capsule().fill(.quaternary)
-                            Capsule()
-                                .fill(completedTasks.count == tasks.count ? .green : Theme.Colors.accent.opacity(0.6))
-                                .frame(width: geo.size.width * progress)
+                            Text("Accessed \(project.lastAccessedAt, style: .relative)")
+                                .font(Theme.Fonts.caption)
+                                .foregroundStyle(.tertiary)
                         }
                     }
-                    .frame(height: 6)
+
+                    Spacer()
+
+                    // Pin toggle
+                    Button {
+                        var updated = project
+                        updated.pinned.toggle()
+                        updated.updatedAt = .now
+                        try? store.insertNode(updated)
+                    } label: {
+                        Image(systemName: project.pinned ? "pin.fill" : "pin")
+                            .font(.caption)
+                            .foregroundStyle(project.pinned ? AnyShapeStyle(.orange) : AnyShapeStyle(.tertiary))
+                    }
+                    .buttonStyle(.plain)
+                    .help(project.pinned ? "Unpin" : "Pin to Today")
+                }
+
+                // Description
+                if !project.body.isEmpty {
+                    Text(project.body)
+                        .font(Theme.Fonts.body)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(4)
+                }
+
+                // Progress bar (full width)
+                if !tasks.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text("\(completedTasks.count)/\(tasks.count) tasks")
+                                .font(Theme.Fonts.caption)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Text("\(Int(Double(completedTasks.count) / Double(tasks.count) * 100))%")
+                                .font(Theme.Fonts.caption.monospaced())
+                                .foregroundStyle(.secondary)
+                        }
+                        GeometryReader { geo in
+                            ZStack(alignment: .leading) {
+                                Capsule().fill(.quaternary)
+                                Capsule()
+                                    .fill(completedTasks.count == tasks.count ? .green : Theme.Colors.accent.opacity(0.6))
+                                    .frame(width: geo.size.width * progress)
+                            }
+                        }
+                        .frame(height: 6)
+                    }
+                }
+
+                // Stats row
+                HStack(spacing: Theme.Spacing.lg) {
+                    statLabel("\(allConnected.count)", icon: "link", label: "connected")
+                    statLabel("\(tasks.count)", icon: "checklist", label: "tasks")
+                    statLabel("\(notes.count)", icon: "note.text", label: "notes")
+                    statLabel("\(sources.count)", icon: "link", label: "sources")
+
+                    Spacer()
+
+                    Text("Updated \(project.updatedAt, style: .relative)")
+                        .font(Theme.Fonts.caption)
+                        .foregroundStyle(.tertiary)
                 }
             }
-
-            // Stats row
-            HStack(spacing: Theme.Spacing.lg) {
-                statLabel("\(allConnected.count)", icon: "link", label: "connected")
-                statLabel("\(tasks.count)", icon: "checklist", label: "tasks")
-                statLabel("\(notes.count)", icon: "note.text", label: "notes")
-                statLabel("\(sources.count)", icon: "link", label: "sources")
-
-                Spacer()
-
-                Text("Updated \(project.updatedAt, style: .relative)")
-                    .font(Theme.Fonts.caption)
-                    .foregroundStyle(.tertiary)
-            }
+            .padding(Theme.Spacing.lg)
         }
-        .padding(Theme.Spacing.lg)
         .background(
-            RoundedRectangle(cornerRadius: Theme.Radius.card)
+            RoundedRectangle(cornerRadius: Theme.Radius.cardLarge)
                 .fill(Color(NSColor.controlBackgroundColor))
         )
+        .shadow(color: Theme.Shadow.hero.color, radius: Theme.Shadow.hero.radius, y: Theme.Shadow.hero.y)
         .overlay(
-            RoundedRectangle(cornerRadius: Theme.Radius.card)
-                .strokeBorder(Theme.Colors.accent.opacity(0.12), lineWidth: 1)
+            RoundedRectangle(cornerRadius: Theme.Radius.cardLarge)
+                .strokeBorder(Theme.Colors.accent.opacity(0.08), lineWidth: 0.5)
         )
     }
 
@@ -265,6 +313,159 @@ struct ProjectDetailView: View {
                 .font(Theme.Fonts.caption)
                 .foregroundStyle(.tertiary)
         }
+    }
+
+    // MARK: - Synthesis Card (wiki-inspired — what this project KNOWS)
+
+    private var synthesisCard: some View {
+        let allContent = notes + tasks + people + events
+        let totalWords = allContent.reduce(0) { count, node in
+            count + node.title.count + node.body.count
+        }
+        let types = Set(allContent.map { $0.type })
+
+        return VStack(alignment: .leading, spacing: Theme.Spacing.md) {
+            HStack(spacing: Theme.Spacing.sm) {
+                Image(systemName: "brain")
+                    .font(.system(size: 14))
+                    .foregroundStyle(Theme.Colors.accent)
+                Text("Knowledge Synthesis")
+                    .font(Theme.Fonts.sectionTitle)
+                Spacer()
+                Text("\(allContent.count) nodes · ~\(totalWords) chars")
+                    .font(Theme.Fonts.tiny)
+                    .foregroundStyle(.tertiary)
+            }
+
+            // What this project covers — type distribution as a visual bar
+            if !types.isEmpty {
+                HStack(spacing: 2) {
+                    ForEach(Array(types).sorted { $0.rawValue < $1.rawValue }, id: \.self) { type in
+                        let count = allContent.filter { $0.type == type }.count
+                        let ratio = Double(count) / Double(allContent.count)
+                        if ratio > 0 {
+                            RoundedRectangle(cornerRadius: 2)
+                                .fill(Theme.Colors.typeColor(type).opacity(0.6))
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 6)
+                                .overlay(alignment: .center) {
+                                    if ratio > 0.15 {
+                                        Text(type.rawValue.prefix(1).uppercased())
+                                            .font(.system(size: 7, weight: .bold, design: .rounded))
+                                            .foregroundStyle(.white.opacity(0.8))
+                                    }
+                                }
+                        }
+                    }
+                }
+                .frame(height: 6)
+            }
+
+            // Key entities — what names/concepts appear across this project
+            if !project.body.isEmpty {
+                Text(project.body)
+                    .font(Theme.Fonts.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(3)
+            }
+
+            // Provenance: when was knowledge last added?
+            if let newest = allContent.max(by: { $0.updatedAt < $1.updatedAt }) {
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.tertiary)
+                    Text("Last updated \(newest.updatedAt, style: .relative) · \(newest.title)")
+                        .font(Theme.Fonts.tiny)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                }
+            }
+        }
+        .padding(Theme.Spacing.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .spatialCard(shadow: Theme.Shadow.card)
+    }
+
+    // MARK: - Connections Card (mini-graph)
+
+    private var connectionsCard: some View {
+        let connected = allConnected
+        let byType = Dictionary(grouping: connected) { $0.type }
+
+        return VStack(alignment: .leading, spacing: Theme.Spacing.md) {
+            HStack(spacing: Theme.Spacing.sm) {
+                Image(systemName: "point.3.filled.connected.trianglepath.dotted")
+                    .font(.system(size: 13))
+                    .foregroundStyle(Theme.Colors.accent)
+                Text("Connections")
+                    .font(Theme.Fonts.sectionTitle)
+                Spacer()
+                Text("\(connected.count)")
+                    .font(Theme.Fonts.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(.quaternary, in: Capsule())
+                Button(showConnections ? "Collapse" : "Expand") {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                        showConnections.toggle()
+                    }
+                }
+                .font(Theme.Fonts.tiny)
+                .buttonStyle(.plain)
+                .foregroundStyle(Theme.Colors.accent)
+            }
+
+            // Type distribution dots — quick visual
+            HStack(spacing: Theme.Spacing.md) {
+                ForEach(NodeType.allCases, id: \.self) { type in
+                    let nodes = byType[type] ?? []
+                    if !nodes.isEmpty {
+                        HStack(spacing: 3) {
+                            Circle()
+                                .fill(Theme.Colors.typeColor(type))
+                                .frame(width: 8, height: 8)
+                            Text("\(nodes.count)")
+                                .font(Theme.Fonts.tiny)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                Spacer()
+            }
+
+            if showConnections {
+                Divider()
+                // Connection list
+                ForEach(connected.prefix(8)) { node in
+                    HStack(spacing: Theme.Spacing.sm) {
+                        Image(systemName: node.type.sfIcon)
+                            .font(.system(size: 11))
+                            .foregroundStyle(Theme.Colors.typeColor(node.type))
+                            .frame(width: 14)
+                        Text(node.title)
+                            .font(Theme.Fonts.caption)
+                            .lineLimit(1)
+                        Spacer()
+                        Text(node.type.rawValue)
+                            .font(Theme.Fonts.tiny)
+                            .foregroundStyle(.tertiary)
+                    }
+                    .padding(.vertical, 1)
+                    .contentShape(Rectangle())
+                    .onTapGesture { selectedNode = node }
+                }
+                if connected.count > 8 {
+                    Text("+ \(connected.count - 8) more")
+                        .font(Theme.Fonts.tiny)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+        }
+        .padding(Theme.Spacing.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .spatialCard(shadow: Theme.Shadow.card)
     }
 
     // MARK: - Tasks Card
@@ -810,6 +1011,7 @@ struct DashboardCard<Content: View>: View {
     let icon: String
     var count: Int = 0
     var showCount: Bool = true
+    @State private var isHovered = false
     @ViewBuilder let content: () -> Content
 
     var body: some View {
@@ -837,14 +1039,15 @@ struct DashboardCard<Content: View>: View {
         }
         .padding(Theme.Spacing.lg)
         .frame(maxWidth: .infinity, alignment: .topLeading)
-        .background(
-            RoundedRectangle(cornerRadius: Theme.Radius.card)
-                .fill(Color(NSColor.controlBackgroundColor))
+        .spatialCard(
+            shadow: isHovered ? Theme.Shadow.elevated : Theme.Shadow.card,
+            radius: Theme.Radius.card
         )
-        .overlay(
-            RoundedRectangle(cornerRadius: Theme.Radius.card)
-                .strokeBorder(.quaternary, lineWidth: 0.5)
-        )
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isHovered = hovering
+            }
+        }
     }
 }
 

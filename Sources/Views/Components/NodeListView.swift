@@ -295,6 +295,7 @@ struct ProjectCard: View {
     let project: MindNode
     let store: NodeStore
     let onTap: () -> Void
+    @State private var isHovered = false
 
     private var tasks: [MindNode] {
         store.children(of: project.id, linkType: .belongsTo).filter { $0.type == .task }
@@ -306,6 +307,13 @@ struct ProjectCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+            // Accent bar at top
+            HStack(spacing: 0) {
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(Theme.Colors.typeColor(.project).opacity(0.3))
+                    .frame(height: 2)
+            }
+
             // Header
             HStack(spacing: Theme.Spacing.sm) {
                 Image(systemName: project.pinned ? "folder.fill" : "folder")
@@ -317,7 +325,7 @@ struct ProjectCard: View {
                 if project.pinned {
                     Image(systemName: "pin.fill")
                         .font(.caption2)
-                        .foregroundStyle(Theme.Colors.accent)
+                        .foregroundStyle(.orange)
                 }
                 RelevanceDot(value: project.relevance)
             }
@@ -366,15 +374,18 @@ struct ProjectCard: View {
             }
         }
         .padding(Theme.Spacing.md)
-        .background(
-            RoundedRectangle(cornerRadius: Theme.Radius.card)
-                .fill(Color(NSColor.controlBackgroundColor))
+        .spatialCard(
+            shadow: isHovered ? Theme.Shadow.elevated : Theme.Shadow.card,
+            radius: Theme.Radius.card
         )
         .overlay(
             RoundedRectangle(cornerRadius: Theme.Radius.card)
                 .strokeBorder(project.pinned ? Theme.Colors.accent.opacity(0.3) : Color.clear, lineWidth: 1)
         )
         .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.card))
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.15)) { isHovered = hovering }
+        }
         .onTapGesture(perform: onTap)
     }
 }

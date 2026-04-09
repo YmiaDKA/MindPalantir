@@ -11,6 +11,8 @@ struct InspectorPanel: View {
     @State private var confidence: Double
     @State private var pinned: Bool
     @State private var status: NodeStatus
+    @State private var dueDate: Date?
+    @State private var hasDueDate: Bool
     @State private var showSaveConfirmation = false
     @State private var saveTimer: Timer?
 
@@ -22,6 +24,8 @@ struct InspectorPanel: View {
         _confidence = State(initialValue: node.confidence)
         _pinned = State(initialValue: node.pinned)
         _status = State(initialValue: node.status)
+        _dueDate = State(initialValue: node.dueDate)
+        _hasDueDate = State(initialValue: node.dueDate != nil)
     }
 
     var body: some View {
@@ -36,6 +40,11 @@ struct InspectorPanel: View {
                 // Status pills
                 statusSection
                 
+                // Due Date (for tasks/events)
+                if node.type == .task || node.type == .event {
+                    dueDateSection
+                }
+
                 // Scores
                 scoresSection
                 
@@ -145,6 +154,44 @@ struct InspectorPanel: View {
         }
     }
     
+    // MARK: - Due Date
+
+    private var dueDateSection: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+            Text("DUE DATE")
+                .font(Theme.Fonts.tiny)
+                .foregroundStyle(.tertiary)
+                .tracking(1)
+
+            HStack(spacing: Theme.Spacing.sm) {
+                Toggle(isOn: $hasDueDate) {
+                    Text("Set due date")
+                        .font(Theme.Fonts.caption)
+                }
+                .toggleStyle(.checkbox)
+            }
+
+            if hasDueDate {
+                DatePicker(
+                    "",
+                    selection: Binding(
+                        get: { dueDate ?? Date() },
+                        set: { dueDate = $0 }
+                    ),
+                    displayedComponents: [.date, .hourAndMinute]
+                )
+                .datePickerStyle(.compact)
+                .labelsHidden()
+            }
+        }
+        .onChange(of: hasDueDate) { _, newValue in
+            if !newValue { dueDate = nil }
+            else if dueDate == nil { dueDate = Date() }
+            debouncedSave()
+        }
+        .onChange(of: dueDate) { _, _ in debouncedSave() }
+    }
+
     // MARK: - Scores
     
     private var scoresSection: some View {
@@ -308,6 +355,7 @@ struct InspectorPanel: View {
         updated.confidence = confidence
         updated.pinned = pinned
         updated.status = status
+        updated.dueDate = dueDate
         updated.updatedAt = .now
         try? store.insertNode(updated)
         withAnimation { showSaveConfirmation = true }

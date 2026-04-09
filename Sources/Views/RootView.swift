@@ -9,6 +9,8 @@ struct RootView: View {
     @State private var showInspector = false
     @State private var searchText = ""
     @State private var navigateToProject: MindNode?
+    @State private var showQuickSwitcher = false
+    @State private var showKeyboardHelp = false
     
     /// Global search results across all nodes — uses FTS5
     private var searchResults: [MindNode] {
@@ -92,6 +94,31 @@ struct RootView: View {
                 inspectorEmptyState
             }
         }
+        .overlay {
+            if showQuickSwitcher {
+                ZStack {
+                    Color.black.opacity(0.3)
+                        .ignoresSafeArea()
+                        .onTapGesture { showQuickSwitcher = false }
+                    QuickSwitcher(
+                        selectedNode: $selectedNode,
+                        isPresented: $showQuickSwitcher
+                    )
+                }
+                .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                .animation(.spring(response: 0.2, dampingFraction: 0.8), value: showQuickSwitcher)
+            }
+            if showKeyboardHelp {
+                ZStack {
+                    Color.black.opacity(0.25)
+                        .ignoresSafeArea()
+                        .onTapGesture { showKeyboardHelp = false }
+                    KeyboardHelp(isPresented: $showKeyboardHelp)
+                }
+                .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                .animation(.spring(response: 0.2, dampingFraction: 0.8), value: showKeyboardHelp)
+            }
+        }
         .onChange(of: selectedNode) { _, newNode in
             showInspector = newNode != nil
             // Track access — preference memory
@@ -99,6 +126,12 @@ struct RootView: View {
                 node.lastAccessedAt = Date()
                 node.accessCount += 1
                 try? store.insertNode(node)
+                // If quick switcher selected a project, navigate to it
+                if showQuickSwitcher, node.type == .project {
+                    selectedScreen = .projects
+                    withAnimation { navigateToProject = node }
+                    showQuickSwitcher = false
+                }
             }
         }
         .onChange(of: selectedScreen) { _, _ in
@@ -113,6 +146,14 @@ struct RootView: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 HStack(spacing: Theme.Spacing.sm) {
+                    Button { showQuickSwitcher = true } label: {
+                        Image(systemName: "magnifyingglass")
+                    }
+                    .controlSize(.small)
+                    .keyboardShortcut("k", modifiers: .command)
+                    .help("Quick Switch (⌘K)")
+                    .accessibilityLabel("Quick Switch")
+
                     Button { selectedScreen = .today } label: {
                         Image(systemName: "plus.circle")
                     }
@@ -128,6 +169,14 @@ struct RootView: View {
                     .keyboardShortcut("i", modifiers: .command)
                     .help("Inspector (⌘I)")
                     .accessibilityLabel("Inspector")
+
+                    Button { showKeyboardHelp.toggle() } label: {
+                        Image(systemName: "keyboard")
+                    }
+                    .controlSize(.small)
+                    .keyboardShortcut("/", modifiers: .command)
+                    .help("Shortcuts (⌘/)")
+                    .accessibilityLabel("Keyboard Shortcuts")
                 }
             }
         }
