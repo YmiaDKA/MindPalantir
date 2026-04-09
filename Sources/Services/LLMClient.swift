@@ -6,16 +6,15 @@ final class LLMClient: Sendable {
     private let apiKey: String
     private let baseURL = "https://openrouter.ai/api/v1"
     
-    /// Free model fallback chain — best free models first
-    static let modelChain = [
+    /// Free model fallback chain — OpenRouter handles fallback automatically
+    static let models = [
         "google/gemma-4-26b-a4b-it:free",      // Gemma 4 — user's preference
         "google/gemma-3-27b-it:free",           // Gemma 3 27B — strong fallback
         "meta-llama/llama-3.3-70b-instruct:free", // Llama 3.3 — good quality
-        "nousresearch/hermes-3-llama-3.1-405b:free", // Hermes — good reasoning
     ]
     
-    /// Default model
-    static let defaultModel = modelChain[0]
+    /// Default model (first in chain)
+    static let defaultModel = models[0]
     
     init(apiKey: String) {
         self.apiKey = apiKey
@@ -24,8 +23,6 @@ final class LLMClient: Sendable {
     // MARK: - Chat Completion (non-streaming)
     
     func chat(messages: [ChatMessage], model: String? = nil) async throws -> String {
-        let modelToUse = model ?? Self.defaultModel
-        
         let url = URL(string: "\(baseURL)/chat/completions")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -35,7 +32,7 @@ final class LLMClient: Sendable {
         request.timeoutInterval = 30
         
         let body: [String: Any] = [
-            "model": modelToUse,
+            "models": Self.models,  // OpenRouter handles fallback automatically
             "messages": messages.map { ["role": $0.role, "content": $0.content] },
             "max_tokens": 1024,
             "temperature": 0.7,
@@ -52,12 +49,6 @@ final class LLMClient: Sendable {
         if httpResponse.statusCode != 200 {
             let errorText = String(data: data, encoding: .utf8) ?? "unknown"
             NSLog("❌ LLM error \(httpResponse.statusCode): \(errorText)")
-            
-            // If rate limited, try next model in chain
-            if httpResponse.statusCode == 429 {
-                return try await fallbackChat(messages: messages, fromIndex: 0)
-            }
-            
             throw LLMError.apiError(httpResponse.statusCode, errorText)
         }
         
@@ -67,8 +58,6 @@ final class LLMClient: Sendable {
     // MARK: - Streaming Chat
     
     func streamChat(messages: [ChatMessage], model: String? = nil) -> AsyncThrowingStream<String, Error> {
-        let modelToUse = model ?? Self.defaultModel
-        
         return AsyncThrowingStream { continuation in
             Task {
                 do {
@@ -81,7 +70,7 @@ final class LLMClient: Sendable {
                     request.timeoutInterval = 60
                     
                     let body: [String: Any] = [
-                        "model": modelToUse,
+                        "models": Self.models,  // OpenRouter handles fallback
                         "messages": messages.map { ["role": $0.role, "content": $0.content] },
                         "max_tokens": 1024,
                         "temperature": 0.7,
@@ -96,15 +85,6 @@ final class LLMClient: Sendable {
                           httpResponse.statusCode == 200
                     else {
                         let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
-                        
-                        // If rate limited, fallback to next model
-                        if statusCode == 429 {
-                            let result = try await self.fallbackChat(messages: messages, fromIndex: 0)
-                            continuation.yield(result)
-                            continuation.finish()
-                            return
-                        }
-                        
                         continuation.finish(throwing: LLMError.apiError(statusCode, "Stream failed"))
                         return
                     }
@@ -129,52 +109,6 @@ final class LLMClient: Sendable {
                 }
             }
         }
-    }
-    
-    // MARK: - Fallback Chain
-    
-    private func fallbackChat(messages: [ChatMessage], fromIndex: Int) async throws -> String {
-        let nextIndex = fromIndex + 1
-        guard nextIndex < Self.modelChain.count else {
-            throw LLMError.allModelsFailed
-        }
-        
-        let nextModel = Self.modelChain[nextIndex]
-        NSLog("⚠️ Falling back to model: \(nextModel)")
-        
-        let url = URL(string: "\(baseURL)/chat/completions")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("MindPalantir/1.0", forHTTPHeaderField: "HTTP-Referer")
-        request.timeoutInterval = 30
-        
-        let body: [String: Any] = [
-            "model": nextModel,
-            "messages": messages.map { ["role": $0.role, "content": $0.content] },
-            "max_tokens": 1024,
-            "temperature": 0.7,
-        ]
-        
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        
-        let (data, response) = try await URLSession.shared.data(for: request)
-        
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw LLMError.invalidResponse
-        }
-        
-        if httpResponse.statusCode == 429 {
-            return try await fallbackChat(messages: messages, fromIndex: nextIndex)
-        }
-        
-        guard httpResponse.statusCode == 200 else {
-            let errorText = String(data: data, encoding: .utf8) ?? "unknown"
-            throw LLMError.apiError(httpResponse.statusCode, errorText)
-        }
-        
-        return try parseResponse(data)
     }
     
     // MARK: - Parse Response
@@ -205,7 +139,6 @@ enum LLMError: Error, LocalizedError {
     case apiError(Int, String)
     case parseError
     case noAPIKey
-    case allModelsFailed
     
     var errorDescription: String? {
         switch self {
@@ -213,7 +146,6 @@ enum LLMError: Error, LocalizedError {
         case .apiError(let code, let msg): "API error \(code): \(msg)"
         case .parseError: "Failed to parse LLM response"
         case .noAPIKey: "No API key configured"
-        case .allModelsFailed: "All free models are rate-limited. Try again later."
         }
     }
 }
