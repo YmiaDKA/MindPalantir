@@ -12,62 +12,58 @@ struct ChatView: View {
     @State private var showAPIKeyPrompt = false
     @State private var streamingText = ""
     @State private var currentTask: Task<Void, Never>?
-    
+
     var body: some View {
         VStack(spacing: 0) {
-            // Header
             headerBar
-            
+
             Divider()
-            
-            // Messages
+
             if messages.isEmpty {
                 emptyState
             } else {
                 messageList
             }
-            
+
             Divider()
-            
-            // Input
+
             inputBar
         }
         .navigationTitle("Chat")
         .onAppear { loadAPIKey() }
     }
-    
+
     // MARK: - Header
-    
+
     private var headerBar: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Theme.Spacing.sm) {
             Image(systemName: "brain.head.profile")
-                .foregroundStyle(.purple)
+                .foregroundStyle(Theme.Colors.accent)
             Text("Brain Assistant")
-                .font(.headline)
+                .font(Theme.Fonts.headline)
 
             Spacer()
 
-            // Node count — matches design spec toolbar
             Text("\(store.nodes.count) nodes")
-                .font(.caption)
+                .font(Theme.Fonts.caption)
                 .foregroundStyle(.tertiary)
 
             if llmClient == nil {
                 Button("Set API Key") { showAPIKeyPrompt = true }
-                    .font(.caption)
+                    .font(Theme.Fonts.caption)
                     .buttonStyle(.bordered)
                     .tint(.orange)
             }
 
             Button { clearChat() } label: {
                 Image(systemName: "trash")
-                    .font(.caption)
+                    .font(Theme.Fonts.caption)
             }
             .buttonStyle(.plain)
             .help("Clear conversation")
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .padding(.horizontal, Theme.Spacing.lg)
+        .padding(.vertical, Theme.Spacing.sm)
         .alert("OpenRouter API Key", isPresented: $showAPIKeyPrompt) {
             SecureField("sk-or-...", text: $apiKeyInput)
             Button("Save") { saveAPIKey() }
@@ -76,22 +72,22 @@ struct ChatView: View {
             Text("Get a key at openrouter.ai/settings/keys")
         }
     }
-    
+
     // MARK: - Empty State
-    
+
     private var emptyState: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: Theme.Spacing.lg) {
             Spacer()
 
             Image(systemName: "brain.head.profile")
                 .font(.system(size: 48))
-                .foregroundStyle(.purple.opacity(0.4))
+                .foregroundStyle(Theme.Colors.accent.opacity(0.4))
 
             Text("Talk to your brain")
-                .font(.title2.bold())
+                .font(Theme.Fonts.largeTitle)
                 .foregroundStyle(.secondary)
 
-            VStack(spacing: 8) {
+            VStack(spacing: Theme.Spacing.sm) {
                 suggestionChip(icon: "folder", "What projects am I working on?")
                 suggestionChip(icon: "star", "What's most important right now?")
                 suggestionChip(icon: "link", "Find connections I'm missing")
@@ -101,9 +97,9 @@ struct ChatView: View {
 
             if llmClient == nil {
                 Label("Set an OpenRouter API key to start", systemImage: "key")
-                    .font(.caption)
+                    .font(Theme.Fonts.caption)
                     .foregroundStyle(.orange)
-                    .padding(.top, 8)
+                    .padding(.top, Theme.Spacing.sm)
             }
 
             Spacer()
@@ -117,26 +113,26 @@ struct ChatView: View {
             sendMessage()
         } label: {
             Label(text, systemImage: icon)
-                .font(.caption)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(.purple.opacity(0.08), in: Capsule())
-                .foregroundStyle(.purple)
+                .font(Theme.Fonts.caption)
+                .padding(.horizontal, Theme.Spacing.md)
+                .padding(.vertical, Theme.Spacing.xs + 2)
+                .background(Theme.Colors.accent.opacity(0.08), in: Capsule())
+                .foregroundStyle(Theme.Colors.accent)
         }
         .buttonStyle(.plain)
     }
-    
+
     // MARK: - Message List
-    
+
     private var messageList: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 12) {
+                LazyVStack(alignment: .leading, spacing: Theme.Spacing.md) {
                     ForEach(messages.indices, id: \.self) { idx in
                         ChatBubble(message: messages[idx])
                             .id(idx)
                     }
-                    
+
                     if isThinking && !streamingText.isEmpty {
                         ChatBubble(message: ChatMessage(role: "assistant", content: streamingText))
                             .id("streaming")
@@ -145,10 +141,10 @@ struct ChatView: View {
                             ProgressView()
                                 .controlSize(.small)
                             Text("Thinking...")
-                                .font(.caption)
+                                .font(Theme.Fonts.caption)
                                 .foregroundStyle(.secondary)
                         }
-                        .padding(.horizontal, 14)
+                        .padding(.horizontal, Theme.Spacing.lg)
                         .id("thinking")
                     }
                 }
@@ -166,16 +162,17 @@ struct ChatView: View {
             }
         }
     }
-    
+
     // MARK: - Input Bar
-    
+
     private var inputBar: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Theme.Spacing.sm) {
             TextField("Ask about your brain...", text: $inputText, axis: .vertical)
                 .textFieldStyle(.plain)
+                .font(Theme.Fonts.body)
                 .lineLimit(1...4)
                 .onSubmit { sendMessage() }
-            
+
             if !inputText.isEmpty || isThinking {
                 Button {
                     if isThinking {
@@ -192,18 +189,18 @@ struct ChatView: View {
                 } label: {
                     Image(systemName: isThinking ? "stop.circle" : "arrow.up.circle.fill")
                         .font(.title2)
-                        .foregroundStyle(.purple)
+                        .foregroundStyle(Theme.Colors.accent)
                 }
                 .buttonStyle(.plain)
                 .disabled(!isThinking && llmClient == nil)
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .padding(.horizontal, Theme.Spacing.lg)
+        .padding(.vertical, Theme.Spacing.sm)
         .background(.ultraThinMaterial)
     }
-    
-    // MARK: - Send Message (streaming + tool calling)
+
+    // MARK: - Send Message
 
     private func sendMessage() {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -218,26 +215,21 @@ struct ChatView: View {
         currentTask?.cancel()
         currentTask = Task { @MainActor in
             do {
-                // Memory Router: route the question to the right context pack
-                // instead of dumping the entire brain every message
                 let routedContext = BrainContext.route(question: text, store: store)
                 let systemMsg = ChatMessage(role: "system", content: routedContext)
                 let fullMessages = [systemMsg] + messages
 
-                // First call with tools (non-streaming — we need to parse tool calls)
                 let result = try await client.chat(
                     messages: fullMessages,
                     tools: allBrainToolDefinitions
                 )
 
                 if let toolCalls = result.toolCalls, !toolCalls.isEmpty {
-                    // Show what AI said before tools
                     let assistantContent = result.content
                     if !assistantContent.isEmpty {
                         messages.append(ChatMessage(role: "assistant", content: assistantContent))
                     }
 
-                    // Execute each tool and show results inline
                     for call in toolCalls {
                         guard let function = call["function"] as? [String: Any],
                               let name = function["name"] as? String
@@ -248,12 +240,10 @@ struct ChatView: View {
 
                         let toolResult = executeBrainTool(name: name, arguments: args, store: store)
 
-                        // Show tool usage as a system-style message
                         let toolLabel = toolDisplayName(name)
                         messages.append(ChatMessage(role: "tool", content: "🔧 \(toolLabel): \(toolResult)"))
                     }
 
-                    // Second call — stream the final response
                     let finalMessages = [systemMsg] + messages
                     streamingText = ""
                     for try await chunk in client.streamChat(messages: finalMessages) {
@@ -265,7 +255,6 @@ struct ChatView: View {
                         streamingText = ""
                     }
                 } else {
-                    // No tools — stream directly
                     let streamMessages = [systemMsg] + messages
                     streamingText = ""
                     for try await chunk in client.streamChat(messages: streamMessages) {
@@ -301,35 +290,13 @@ struct ChatView: View {
         default: name
         }
     }
-    
-    // MARK: - Auto-create nodes from AI responses
-    
-    private func processSuggestions(_ response: String) {
-        // Look for patterns like "I'd suggest creating a task: ..."
-        // or "You should add a note about ..."
-        // For now, just detect if the AI mentions creating something
-        
-        let taskPatterns = [
-            "suggest creating a task",
-            "you should add a task",
-            "I recommend creating",
-        ]
-        
-        for pattern in taskPatterns {
-            if response.lowercased().contains(pattern.lowercased()) {
-                // The AI suggested something — the user can tell us to create it
-                // Don't auto-create, just make it easy
-                break
-            }
-        }
-    }
-    
+
     // MARK: - API Key Management
-    
+
     private func loadAPIKey() {
         llmClient = APIKeyStore.makeClient()
     }
-    
+
     private func saveAPIKey() {
         let trimmed = apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
@@ -337,7 +304,7 @@ struct ChatView: View {
         llmClient = LLMClient(apiKey: trimmed)
         apiKeyInput = ""
     }
-    
+
     private func clearChat() {
         currentTask?.cancel()
         currentTask = nil
@@ -357,35 +324,34 @@ struct ChatBubble: View {
 
     var body: some View {
         if isTool {
-            // Tool usage — compact, secondary styling
             HStack(spacing: 6) {
                 Text(message.content)
-                    .font(.caption)
+                    .font(Theme.Fonts.caption)
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 4)
+            .padding(.horizontal, Theme.Spacing.lg)
+            .padding(.vertical, Theme.Spacing.xs)
         } else {
-            HStack(alignment: .top, spacing: 8) {
+            HStack(alignment: .top, spacing: Theme.Spacing.sm) {
                 if isUser { Spacer(minLength: 60) }
 
                 if !isUser {
                     Image(systemName: "brain.head.profile")
                         .font(.system(size: 14))
-                        .foregroundStyle(.purple)
+                        .foregroundStyle(Theme.Colors.accent)
                         .padding(.top, 2)
                 }
 
                 Text(message.content)
-                    .font(.subheadline)
+                    .font(Theme.Fonts.body)
                     .textSelection(.enabled)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
+                    .padding(.horizontal, Theme.Spacing.md)
+                    .padding(.vertical, Theme.Spacing.sm)
                     .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(isUser ? Color.accentColor.opacity(0.1) : Color(NSColor.controlBackgroundColor))
+                        RoundedRectangle(cornerRadius: Theme.Radius.card)
+                            .fill(isUser ? Theme.Colors.accent.opacity(0.1) : Color(NSColor.controlBackgroundColor))
                     )
 
                 if !isUser { Spacer(minLength: 60) }

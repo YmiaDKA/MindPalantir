@@ -12,33 +12,45 @@ struct ClarificationView: View {
 
     var body: some View {
         List(uncertain) { node in
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
+            VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+                HStack(spacing: Theme.Spacing.sm) {
                     Image(systemName: node.type.sfIcon)
-                    Text(node.title).font(.headline).lineLimit(1)
+                        .foregroundStyle(Theme.Colors.typeColor(node.type))
+                    Text(node.title)
+                        .font(Theme.Fonts.headline)
+                        .lineLimit(1)
                     Spacer()
                     ConfidenceBadge(value: node.confidence)
                 }
 
                 Text(reasonFor(node: node))
-                    .font(.caption).foregroundStyle(.orange)
+                    .font(Theme.Fonts.caption)
+                    .foregroundStyle(.orange)
 
                 if !node.body.isEmpty {
-                    Text(node.body).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                    Text(node.body)
+                        .font(Theme.Fonts.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
 
                 HStack {
                     Text("Source: \(node.sourceOrigin ?? "unknown")")
-                        .font(.caption2).foregroundStyle(.tertiary)
+                        .font(Theme.Fonts.caption)
+                        .foregroundStyle(.tertiary)
                     Spacer()
                     Button("Looks Fine") { boostConfidence(node) }
+                        .font(Theme.Fonts.caption)
                         .buttonStyle(.bordered)
                         .controlSize(.small)
+                        .tint(Theme.Colors.accent)
                 }
             }
+            .padding(.vertical, Theme.Spacing.xs)
             .contentShape(Rectangle())
             .onTapGesture { selectedNode = node }
         }
+        .listStyle(.plain)
         .navigationTitle("Needs Clarification")
         .overlay {
             if uncertain.isEmpty {

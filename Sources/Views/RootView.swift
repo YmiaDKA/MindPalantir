@@ -185,7 +185,7 @@ struct RootView: View {
             }
             .padding(.horizontal, Theme.Spacing.lg)
             .padding(.vertical, Theme.Spacing.sm)
-            
+
             Divider()
             
             // Results list
@@ -224,11 +224,10 @@ struct SearchResultRow: View {
     
     var body: some View {
         HStack(spacing: Theme.Spacing.md) {
-            // Type icon
             Image(systemName: node.type.sfIcon)
                 .font(.system(size: 16))
-            
-            // Content
+                .foregroundStyle(Theme.Colors.typeColor(node.type))
+
             VStack(alignment: .leading, spacing: 2) {
                 Text(node.title)
                     .font(Theme.Fonts.headline)
@@ -250,15 +249,14 @@ struct SearchResultRow: View {
                         .foregroundStyle(.tertiary)
                 }
             }
-            
+
             Spacer()
-            
-            // Relevance indicator
+
             Circle()
                 .fill(Theme.Colors.relevance(node.relevance))
                 .frame(width: 6, height: 6)
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, Theme.Spacing.xs)
         .contentShape(Rectangle())
         .onTapGesture { selectedNode = node }
     }

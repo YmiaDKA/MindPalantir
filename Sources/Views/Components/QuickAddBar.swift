@@ -9,7 +9,7 @@ struct QuickAddBar: View {
     @State private var addedFeedback = false
     
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Theme.Spacing.sm) {
             // Type selector
             Menu {
                 ForEach(NodeType.allCases, id: \.self) { type in
@@ -20,7 +20,7 @@ struct QuickAddBar: View {
                             if autoDetectedType == type && selectedType != type {
                                 Text("(auto)")
                                     .foregroundStyle(.secondary)
-                                    .font(.caption)
+                                    .font(Theme.Fonts.caption)
                             }
                         }
                     }
@@ -57,9 +57,9 @@ struct QuickAddBar: View {
                 .keyboardShortcut(.return, modifiers: .command)
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+        .padding(.horizontal, Theme.Spacing.md)
+        .padding(.vertical, Theme.Spacing.xs + 2)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: Theme.Radius.card))
     }
     
     // MARK: - Smart Type Detection
