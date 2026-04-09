@@ -26,22 +26,26 @@ struct TodayView: View {
         store.recentNodes(days: 3, limit: 8)
     }
     
+    private var taskCount: Int {
+        store.activeNodes(ofType: .task).filter { $0.status != .completed }.count
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Theme.Spacing.xl) {
                 // Quick add at top
                 quickAdd
-                
+
                 // Focus: one project in detail
                 if let project = focusProject {
                     focusSection(project)
                 }
-                
+
                 // Tasks: compact list
                 if !openTasks.isEmpty {
                     tasksSection
                 }
-                
+
                 // Recent: timeline strip
                 if !recentActivity.isEmpty {
                     recentSection
@@ -49,6 +53,22 @@ struct TodayView: View {
             }
             .padding(.horizontal, Theme.Spacing.lg)
             .padding(.vertical, Theme.Spacing.md)
+        }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                HStack(spacing: Theme.Spacing.md) {
+                    Text("\(store.nodes.count) nodes")
+                        .font(Theme.Fonts.caption)
+                        .foregroundStyle(.tertiary)
+                    if taskCount > 0 {
+                        Text("·")
+                            .foregroundStyle(.tertiary)
+                        Text("\(taskCount) tasks")
+                            .font(Theme.Fonts.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+            }
         }
     }
     
@@ -280,7 +300,7 @@ struct RecentChip: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 4) {
-                Text(node.type.icon)
+                Image(systemName: node.type.sfIcon)
                     .font(.system(size: 11))
                 Text(node.updatedAt, style: .relative)
                     .font(Theme.Fonts.tiny)

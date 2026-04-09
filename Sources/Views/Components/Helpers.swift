@@ -57,7 +57,8 @@ struct ConfidenceBadge: View {
 // MARK: - NodeType Icons
 
 extension NodeType {
-    var icon: String {
+    /// Emoji text icon — used only for LLM context strings (BrainContext, BrainTools)
+    var emoji: String {
         switch self {
         case .project: "📁"
         case .note: "📝"
@@ -68,6 +69,7 @@ extension NodeType {
         }
     }
 
+    /// SF Symbol name — use in all SwiftUI views
     var sfIcon: String {
         switch self {
         case .project: "folder.fill"

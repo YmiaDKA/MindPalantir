@@ -9,17 +9,10 @@ struct RootView: View {
     @State private var showInspector = false
     @State private var searchText = ""
     
-    /// Global search results across all nodes
+    /// Global search results across all nodes — uses FTS5
     private var searchResults: [MindNode] {
         guard !searchText.isEmpty else { return [] }
-        let query = searchText.lowercased()
-        return store.nodes.values
-            .filter { node in
-                node.title.lowercased().contains(query) ||
-                node.body.lowercased().contains(query) ||
-                node.metadata.values.contains { $0.lowercased().contains(query) }
-            }
-            .sorted { $0.relevance > $1.relevance }
+        return store.search(searchText)
     }
 
     enum Screen: String, CaseIterable, Identifiable, Hashable {
@@ -53,6 +46,20 @@ struct RootView: View {
             case .today, .chat: "Home"
             case .projects, .notes, .tasks: "Organize"
             case .timeline, .people, .sources: "Browse"
+            }
+        }
+
+        /// Keyboard shortcut — Cmd+1 through Cmd+8
+        var keyEquivalent: KeyEquivalent? {
+            switch self {
+            case .today: "1"
+            case .chat: "2"
+            case .projects: "3"
+            case .notes: "4"
+            case .tasks: "5"
+            case .timeline: "6"
+            case .people: "7"
+            case .sources: "8"
             }
         }
     }
@@ -89,10 +96,17 @@ struct RootView: View {
         }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
+                Button { selectedScreen = .today } label: {
+                    Image(systemName: "plus.circle")
+                }
+                .keyboardShortcut("n", modifiers: .command)
+                .help("Quick Add (⌘N)")
+
                 Button { showInspector.toggle() } label: {
                     Image(systemName: "sidebar.right")
                 }
-                .help("Inspector")
+                .keyboardShortcut("i", modifiers: .command)
+                .help("Inspector (⌘I)")
             }
         }
     }
@@ -110,6 +124,7 @@ struct RootView: View {
                             Image(systemName: screen.icon)
                         }
                         .tag(screen)
+                        .keyboardShortcut(screen.keyEquivalent ?? "0", modifiers: .command)
                     }
                 }
             }
@@ -210,7 +225,7 @@ struct SearchResultRow: View {
     var body: some View {
         HStack(spacing: Theme.Spacing.md) {
             // Type icon
-            Text(node.type.icon)
+            Image(systemName: node.type.sfIcon)
                 .font(.system(size: 16))
             
             // Content

@@ -108,6 +108,16 @@ final class NodeStore {
         CREATE INDEX IF NOT EXISTS idx_links_target ON links(target_id);
         CREATE INDEX IF NOT EXISTS idx_links_dedupe ON links(dedupe_key);
         """)
+
+        // FTS5 full-text search — standalone table, maintained manually
+        try exec("""
+        CREATE VIRTUAL TABLE IF NOT EXISTS nodes_fts USING fts5(
+            node_id UNINDEXED,
+            title,
+            body,
+            tokenize='porter unicode61'
+        );
+        """)
     }
 
     // MARK: - Node CRUD
@@ -157,6 +167,22 @@ final class NodeStore {
             NSLog("❌ insertNode failed: \(errMsg)")
             throw StoreError.queryFailed
         }
+
+        // Update FTS5 index
+        try? exec("DELETE FROM nodes_fts WHERE node_id = '\(node.id.uuidString)'")
+        let ftsSQL = "INSERT INTO nodes_fts (node_id, title, body) VALUES (?, ?, ?)"
+        var ftsStmt: OpaquePointer?
+        if sqlite3_prepare_v2(db, ftsSQL, -1, &ftsStmt, nil) == SQLITE_OK {
+            let idCStr = node.id.uuidString.cString(using: .utf8)
+            let titleCStr = node.title.cString(using: .utf8)
+            let bodyCStr = node.body.cString(using: .utf8)
+            sqlite3_bind_text(ftsStmt, 1, idCStr, -1, nil)
+            sqlite3_bind_text(ftsStmt, 2, titleCStr, -1, nil)
+            sqlite3_bind_text(ftsStmt, 3, bodyCStr, -1, nil)
+            sqlite3_step(ftsStmt)
+        }
+        sqlite3_finalize(ftsStmt)
+
         nodes[node.id] = node
         changeCount += 1
     }
@@ -165,6 +191,7 @@ final class NodeStore {
         let idStr = id.uuidString
         try exec("DELETE FROM links WHERE source_id='\(idStr)' OR target_id='\(idStr)'")
         try exec("DELETE FROM nodes WHERE id='\(idStr)'")
+        try? exec("DELETE FROM nodes_fts WHERE node_id='\(idStr)'")
         nodes.removeValue(forKey: id)
         links = links.filter { $0.value.sourceID != id && $0.value.targetID != id }
             .reduce(into: [:]) { $0[$1.key] = $1.value }
@@ -298,6 +325,71 @@ final class NodeStore {
         links.values
             .filter { ($0.sourceID == a && $0.targetID == b) || ($0.sourceID == b && $0.targetID == a) }
             .max { $0.weight < $1.weight }
+    }
+
+    // MARK: - Full-Text Search (FTS5)
+
+    /// Search nodes using FTS5 with Porter stemming.
+    /// Returns results ranked by relevance score.
+    func search(_ query: String, limit: Int = 20) -> [MindNode] {
+        guard !query.isEmpty else { return [] }
+
+        // Escape single quotes for FTS5
+        let escaped = query.replacingOccurrences(of: "'", with: "''")
+
+        // Build FTS5 query: prefix match each term
+        let terms = escaped.split(separator: " ").map { "\($0)*" }.joined(separator: " ")
+        let sql = """
+        SELECT node_id FROM nodes_fts
+        WHERE nodes_fts MATCH '\(terms)'
+        ORDER BY rank
+        LIMIT \(limit)
+        """
+
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+            // FTS5 parse error — fall back to simple LIKE
+            return nodes.values
+                .filter {
+                    $0.title.localizedCaseInsensitiveContains(query) ||
+                    $0.body.localizedCaseInsensitiveContains(query)
+                }
+                .sorted { $0.relevance > $1.relevance }
+                .prefix(limit)
+                .map { $0 }
+        }
+        defer { sqlite3_finalize(stmt) }
+
+        var ids: [UUID] = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            if let text = sqlite3_column_text(stmt, 0),
+               let uuid = UUID(uuidString: String(cString: text)) {
+                ids.append(uuid)
+            }
+        }
+
+        return ids.compactMap { nodes[$0] }
+    }
+
+    /// Rebuild FTS5 index from scratch — call on first run or if index seems stale
+    func rebuildSearchIndex() {
+        try? exec("DELETE FROM nodes_fts")
+        let ftsSQL = "INSERT INTO nodes_fts (node_id, title, body) VALUES (?, ?, ?)"
+        var ftsStmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, ftsSQL, -1, &ftsStmt, nil) == SQLITE_OK else { return }
+        defer { sqlite3_finalize(ftsStmt) }
+
+        for (_, node) in nodes {
+            let idCStr = node.id.uuidString.cString(using: .utf8)
+            let titleCStr = node.title.cString(using: .utf8)
+            let bodyCStr = node.body.cString(using: .utf8)
+            sqlite3_bind_text(ftsStmt, 1, idCStr, -1, nil)
+            sqlite3_bind_text(ftsStmt, 2, titleCStr, -1, nil)
+            sqlite3_bind_text(ftsStmt, 3, bodyCStr, -1, nil)
+            sqlite3_step(ftsStmt)
+            sqlite3_reset(ftsStmt)
+        }
+        NSLog("🔍 Rebuilt FTS5 index: \(nodes.count) nodes")
     }
 
     // MARK: - Relevance Decay

@@ -8,7 +8,7 @@ struct NodeCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text(node.type.icon)
+                Image(systemName: node.type.sfIcon)
                 Text(node.type.rawValue.capitalized)
                     .font(.caption2).foregroundStyle(.secondary)
                 Spacer()
@@ -50,7 +50,7 @@ struct ClarificationCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Text(node.type.icon)
+                Image(systemName: node.type.sfIcon)
                 Text(node.title).font(.subheadline.bold()).lineLimit(1)
                 Spacer()
                 ConfidenceBadge(value: node.confidence)

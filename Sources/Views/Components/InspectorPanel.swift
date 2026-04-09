@@ -44,6 +44,10 @@ struct InspectorPanel: View {
                 // Metadata
                 metadataSection
                 
+                // Delete
+                Divider()
+                deleteButton
+
                 // Save
                 saveButton
             }
@@ -57,7 +61,7 @@ struct InspectorPanel: View {
     
     private var headerSection: some View {
         HStack(spacing: Theme.Spacing.sm) {
-            Text(node.type.icon)
+            Image(systemName: node.type.sfIcon)
                 .font(.system(size: 24))
             
             Text(node.type.rawValue.uppercased())
@@ -170,7 +174,7 @@ struct InspectorPanel: View {
                     VStack(spacing: 2) {
                         ForEach(connected.prefix(8)) { c in
                             HStack(spacing: Theme.Spacing.sm) {
-                                Text(c.type.icon)
+                                Image(systemName: c.type.sfIcon)
                                     .font(.system(size: 12))
                                 Text(c.title)
                                     .font(Theme.Fonts.caption)
@@ -220,8 +224,27 @@ struct InspectorPanel: View {
         }
     }
     
+    // MARK: - Delete
+
+    private var deleteButton: some View {
+        Button(role: .destructive) {
+            try? store.deleteNode(id: node.id)
+        } label: {
+            HStack {
+                Spacer()
+                Image(systemName: "trash")
+                Text("Delete")
+                Spacer()
+            }
+            .font(Theme.Fonts.body)
+            .padding(.vertical, 8)
+            .foregroundStyle(.red)
+        }
+        .buttonStyle(.plain)
+    }
+
     // MARK: - Save
-    
+
     private var saveButton: some View {
         Button { save() } label: {
             HStack {

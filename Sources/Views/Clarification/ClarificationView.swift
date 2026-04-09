@@ -14,7 +14,7 @@ struct ClarificationView: View {
         List(uncertain) { node in
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
-                    Text(node.type.icon)
+                    Image(systemName: node.type.sfIcon)
                     Text(node.title).font(.headline).lineLimit(1)
                     Spacer()
                     ConfidenceBadge(value: node.confidence)

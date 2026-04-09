@@ -68,7 +68,7 @@ struct ProjectDetailView: View {
     private var projectHeader: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text(project.type.icon).font(.largeTitle)
+                Image(systemName: project.type.sfIcon).font(.largeTitle)
                 VStack(alignment: .leading) {
                     Text(project.title).font(.title.bold())
                     HStack {
@@ -110,7 +110,7 @@ struct ProjectDetailView: View {
 
             ForEach(nodes) { node in
                 HStack {
-                    Text(node.type.icon)
+                    Image(systemName: node.type.sfIcon)
                     VStack(alignment: .leading) {
                         Text(node.title).font(.subheadline).lineLimit(1)
                         if !node.body.isEmpty {

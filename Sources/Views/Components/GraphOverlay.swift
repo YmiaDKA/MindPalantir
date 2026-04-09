@@ -80,7 +80,7 @@ struct GraphNode: View {
     
     var body: some View {
         VStack(spacing: 2) {
-            Text(node.type.icon)
+            Image(systemName: node.type.sfIcon)
                 .font(.system(size: nodeSize))
             
             Text(node.title)

@@ -23,12 +23,10 @@ struct NodeListView: View {
             nodes = nodes.filter { $0.status == status }
         }
         
-        // Filter by search
+        // Filter by search — use FTS5 results
         if !searchText.isEmpty {
-            nodes = nodes.filter {
-                $0.title.localizedCaseInsensitiveContains(searchText) ||
-                $0.body.localizedCaseInsensitiveContains(searchText)
-            }
+            let ftsResults = Set(store.search(searchText, limit: 50).map { $0.id })
+            nodes = nodes.filter { ftsResults.contains($0.id) }
         }
         
         // Sort
@@ -52,8 +50,11 @@ struct NodeListView: View {
             Divider()
             
             // List
-            List(filteredNodes) { node in
-                NodeListRow(node: node, store: store, selectedNode: $selectedNode)
+            List {
+                ForEach(filteredNodes) { node in
+                    NodeListRow(node: node, store: store, selectedNode: $selectedNode)
+                }
+                .onDelete(perform: deleteNodes)
             }
             .listStyle(.plain)
         }
@@ -94,6 +95,13 @@ struct NodeListView: View {
         }
     }
     
+    private func deleteNodes(at offsets: IndexSet) {
+        for index in offsets {
+            let node = filteredNodes[index]
+            try? store.deleteNode(id: node.id)
+        }
+    }
+
     private func statusButton(_ status: NodeStatus?, label: String) -> some View {
         Button {
             filterStatus = filterStatus == status ? nil : status
@@ -122,7 +130,7 @@ struct NodeListRow: View {
     var body: some View {
         HStack(spacing: 12) {
             // Type icon
-            Text(node.type.icon)
+            Image(systemName: node.type.sfIcon)
                 .font(.system(size: 16))
             
             // Content
@@ -176,50 +184,57 @@ struct ProjectListView: View {
     
     var body: some View {
         NavigationStack {
-            List(store.activeNodes(ofType: .project)) { node in
-                let connections = store.connectedNodes(for: node.id).count
-                let tasks = store.children(of: node.id, linkType: .belongsTo).filter { $0.type == .task }
-                let completedTasks = tasks.filter { $0.status == .completed }.count
-                
-                NavigationLink(value: node.id) {
-                    HStack(spacing: 12) {
-                        Image(systemName: "folder.fill")
-                            .foregroundStyle(.blue)
-                            .font(.system(size: 20))
-                        
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(node.title)
-                                .font(.headline)
-                            
-                            HStack(spacing: 8) {
-                                // Progress
-                                if !tasks.isEmpty {
-                                    HStack(spacing: 4) {
-                                        ProgressView(value: Double(completedTasks), total: Double(tasks.count))
-                                            .frame(width: 40)
-                                            .controlSize(.mini)
-                                        Text("\(completedTasks)/\(tasks.count)")
-                                            .font(.caption2)
-                                            .foregroundStyle(.secondary)
+            List {
+                ForEach(store.activeNodes(ofType: .project)) { node in
+                    let connections = store.connectedNodes(for: node.id).count
+                    let tasks = store.children(of: node.id, linkType: .belongsTo).filter { $0.type == .task }
+                    let completedTasks = tasks.filter { $0.status == .completed }.count
+
+                    NavigationLink(value: node.id) {
+                        HStack(spacing: 12) {
+                            Image(systemName: "folder.fill")
+                                .foregroundStyle(.blue)
+                                .font(.system(size: 20))
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(node.title)
+                                    .font(.headline)
+
+                                HStack(spacing: 8) {
+                                    if !tasks.isEmpty {
+                                        HStack(spacing: 4) {
+                                            ProgressView(value: Double(completedTasks), total: Double(tasks.count))
+                                                .frame(width: 40)
+                                                .controlSize(.mini)
+                                            Text("\(completedTasks)/\(tasks.count)")
+                                                .font(.caption2)
+                                                .foregroundStyle(.secondary)
+                                        }
                                     }
+
+                                    Text("\(connections) items")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
                                 }
-                                
-                                Text("\(connections) items")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
+                            }
+
+                            Spacer()
+
+                            VStack(alignment: .trailing, spacing: 4) {
+                                ConfidenceBadge(value: node.confidence)
+                                RelevanceBar(value: node.relevance).frame(width: 40, height: 3)
                             }
                         }
-                        
-                        Spacer()
-                        
-                        VStack(alignment: .trailing, spacing: 4) {
-                            ConfidenceBadge(value: node.confidence)
-                            RelevanceBar(value: node.relevance).frame(width: 40, height: 3)
-                        }
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture { selectedNode = node }
+                }
+                .onDelete { offsets in
+                    let projects = store.activeNodes(ofType: .project)
+                    for index in offsets {
+                        try? store.deleteNode(id: projects[index].id)
                     }
                 }
-                .contentShape(Rectangle())
-                .onTapGesture { selectedNode = node }
             }
             .listStyle(.plain)
             .navigationTitle("Projects")

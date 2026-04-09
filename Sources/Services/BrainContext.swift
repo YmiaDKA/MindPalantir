@@ -85,7 +85,7 @@ struct BrainContext {
         if !topConnected.isEmpty {
             var linkLines = ["## Most Connected Items"]
             for (node, count) in topConnected {
-                linkLines.append("- \(node.type.icon) \(node.title): \(count) connections")
+                linkLines.append("- \(node.type.emoji) \(node.title): \(count) connections")
             }
             sections.append(linkLines.joined(separator: "\n"))
         }
@@ -121,7 +121,7 @@ struct BrainContext {
         if !connected.isEmpty {
             lines.append("\nConnected to:")
             for c in connected.prefix(8) {
-                lines.append("  \(c.type.icon) \(c.title)")
+                lines.append("  \(c.type.emoji) \(c.title)")
             }
         }
         
@@ -149,14 +149,14 @@ struct BrainContext {
         let created = dayNodes.filter { $0.createdAt >= dayStart && $0.createdAt < dayEnd }
         if !created.isEmpty {
             lines.append("Created:")
-            for n in created { lines.append("  \(n.type.icon) \(n.title)") }
+            for n in created { lines.append("  \(n.type.emoji) \(n.title)") }
         }
         
         let createdIds = Set(created.map { $0.id })
         let updated = dayNodes.filter { $0.updatedAt >= dayStart && $0.updatedAt < dayEnd && !createdIds.contains($0.id) }
         if !updated.isEmpty {
             lines.append("Updated:")
-            for n in updated { lines.append("  \(n.type.icon) \(n.title)") }
+            for n in updated { lines.append("  \(n.type.emoji) \(n.title)") }
         }
         
         return lines.joined(separator: "\n")

@@ -141,7 +141,7 @@ struct DaySection: View {
             ForEach(NodeType.allCases, id: \.self) { type in
                 if let count = counts[type], count > 0 {
                     HStack(spacing: 2) {
-                        Text(type.icon).font(.caption2)
+                        Image(systemName: type.sfIcon).font(.caption2)
                         Text("\(count)").font(.caption2).foregroundStyle(.secondary)
                     }
                 }
@@ -160,7 +160,7 @@ struct TimelineRow: View {
         HStack(spacing: 12) {
             // Type + time
             VStack(spacing: 2) {
-                Text(node.type.icon).font(.system(size: 14))
+                Image(systemName: node.type.sfIcon).font(.system(size: 14))
                 Text(node.updatedAt, style: .time)
                     .font(.caption2)
                     .foregroundStyle(.tertiary)

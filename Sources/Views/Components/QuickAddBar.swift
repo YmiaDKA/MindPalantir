@@ -15,7 +15,7 @@ struct QuickAddBar: View {
                 ForEach(NodeType.allCases, id: \.self) { type in
                     Button { selectedType = type } label: {
                         HStack {
-                            Text(type.icon)
+                            Image(systemName: type.sfIcon)
                             Text(type.rawValue.capitalized)
                             if autoDetectedType == type && selectedType != type {
                                 Text("(auto)")
@@ -26,7 +26,7 @@ struct QuickAddBar: View {
                     }
                 }
             } label: {
-                Text(selectedType.icon)
+                Image(systemName: selectedType.sfIcon)
                     .font(.title3)
             }
             .menuStyle(.borderlessButton)
