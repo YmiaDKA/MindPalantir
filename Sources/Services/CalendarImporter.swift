@@ -8,20 +8,38 @@ final class CalendarImporter {
     
     /// Request calendar access and import recent events.
     func importEvents(store: NodeStore, daysBack: Int = 30, daysForward: Int = 14) async -> Int {
-        // Request access
-        let granted: Bool
+        // Check authorization status first — don't re-prompt every run
+        let status: EKAuthorizationStatus
         if #available(macOS 14.0, *) {
-            granted = (try? await eventStore.requestFullAccessToEvents()) ?? false
+            status = EKEventStore.authorizationStatus(for: .event)
         } else {
-            granted = await withCheckedContinuation { cont in
-                eventStore.requestAccess(to: .event) { success, _ in
-                    cont.resume(returning: success)
+            status = EKEventStore.authorizationStatus(for: .event)
+        }
+
+        let granted: Bool
+        switch status {
+        case .authorized, .fullAccess, .writeOnly:
+            granted = true
+        case .notDetermined:
+            // First time — request access
+            if #available(macOS 14.0, *) {
+                granted = (try? await eventStore.requestFullAccessToEvents()) ?? false
+            } else {
+                granted = await withCheckedContinuation { cont in
+                    eventStore.requestAccess(to: .event) { success, _ in
+                        cont.resume(returning: success)
+                    }
                 }
             }
+        case .denied, .restricted:
+            print("📅 Calendar access denied/restricted")
+            return 0
+        @unknown default:
+            granted = false
         }
-        
+
         guard granted else {
-            print("📅 Calendar access denied")
+            print("📅 Calendar access not granted")
             return 0
         }
         

@@ -105,23 +105,28 @@ struct RootView: View {
             navigateToProject = nil
         }
         .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
-                Button { selectedScreen = .today } label: {
-                    Image(systemName: "plus.circle")
-                }
-                .controlSize(.small)
-                .keyboardShortcut("n", modifiers: .command)
-                .help("Quick Add (⌘N)")
+            ToolbarItem(placement: .primaryAction) {
+                HStack(spacing: Theme.Spacing.sm) {
+                    Button { selectedScreen = .today } label: {
+                        Image(systemName: "plus.circle")
+                    }
+                    .controlSize(.small)
+                    .keyboardShortcut("n", modifiers: .command)
+                    .help("Quick Add (⌘N)")
+                    .accessibilityLabel("Quick Add")
 
-                Button { showInspector.toggle() } label: {
-                    Image(systemName: "sidebar.right")
+                    Button { showInspector.toggle() } label: {
+                        Image(systemName: "sidebar.right")
+                    }
+                    .controlSize(.small)
+                    .keyboardShortcut("i", modifiers: .command)
+                    .help("Inspector (⌘I)")
+                    .accessibilityLabel("Inspector")
                 }
-                .controlSize(.small)
-                .keyboardShortcut("i", modifiers: .command)
-                .help("Inspector (⌘I)")
             }
         }
         .navigationTitle("")
+        .toolbarRole(.automatic)
     }
 
     // MARK: - Sidebar
