@@ -7,6 +7,7 @@ struct QuickAddBar: View {
     @State private var selectedType: NodeType = .note
     @State private var autoDetectedType: NodeType?
     @State private var addedFeedback = false
+    var focusedProject: MindNode? = nil
     
     var body: some View {
         HStack(spacing: Theme.Spacing.sm) {
@@ -127,6 +128,12 @@ struct QuickAddBar: View {
             sourceOrigin: "quick_add"
         )
         try? store.insertNode(node)
+        
+        // Auto-link to focused project
+        if let project = focusedProject {
+            let link = MindLink(sourceID: project.id, targetID: node.id, linkType: .belongsTo)
+            try? store.insertLink(link)
+        }
         
         text = ""
         selectedType = .note

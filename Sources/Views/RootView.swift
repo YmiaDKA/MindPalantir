@@ -104,6 +104,12 @@ struct RootView: View {
         .onChange(of: selectedScreen) { _, _ in
             navigateToProject = nil
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("SelectNode"))) { notification in
+            if let node = notification.object as? MindNode {
+                selectedNode = node
+                showInspector = true
+            }
+        }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 HStack(spacing: Theme.Spacing.sm) {
@@ -171,7 +177,7 @@ struct RootView: View {
                 }
             }
 
-            // Active projects inline
+            // Active projects inline — with relevance dots and pin indicators
             let projects = store.activeNodes(ofType: .project)
                 .sorted { ($0.pinned ? 1 : 0) + $0.relevance > ($1.pinned ? 1 : 0) + $1.relevance }
                 .prefix(5)
@@ -180,16 +186,20 @@ struct RootView: View {
                 Section("Projects") {
                     ForEach(Array(projects)) { project in
                         let tasks = store.children(of: project.id, linkType: .belongsTo).filter { $0.type == .task }
-                        let openTasks = tasks.filter { $0.status != .completed }.count
+                        let completedTasks = tasks.filter { $0.status == .completed }.count
 
                         Label {
                             HStack(spacing: Theme.Spacing.xs) {
                                 Text(project.title)
                                     .lineLimit(1)
                                 Spacer()
-                                if openTasks > 0 {
-                                    Text("\(openTasks)")
-                                        .font(Theme.Fonts.caption)
+                                // Relevance dot
+                                Circle()
+                                    .fill(Theme.Colors.relevance(project.relevance))
+                                    .frame(width: 5, height: 5)
+                                if tasks.count > 0 {
+                                    Text("\(completedTasks)/\(tasks.count)")
+                                        .font(Theme.Fonts.tiny)
                                         .foregroundStyle(.tertiary)
                                 }
                             }
@@ -206,19 +216,25 @@ struct RootView: View {
                 }
             }
 
-            // Recent section — quick access to last-touched items
+            // Recent section — with type colors and timestamps
             let recentItems = store.recentNodes(days: 3, limit: 5)
             if !recentItems.isEmpty {
                 Section("Recent") {
                     ForEach(recentItems) { node in
                         Label {
-                            Text(node.title)
-                                .lineLimit(1)
+                            HStack(spacing: Theme.Spacing.xs) {
+                                Text(node.title)
+                                    .lineLimit(1)
+                                Spacer()
+                                Text(node.updatedAt, style: .relative)
+                                    .font(Theme.Fonts.tiny)
+                                    .foregroundStyle(.tertiary)
+                            }
                         } icon: {
                             Image(systemName: node.type.sfIcon)
                                 .foregroundStyle(Theme.Colors.typeColor(node.type))
                         }
-                        .tag(selectedScreen) // keep current screen selected
+                        .tag(selectedScreen)
                         .onTapGesture {
                             selectedNode = node
                             showInspector = true
@@ -280,14 +296,39 @@ struct RootView: View {
     
     // MARK: - Search Results
     
+    @State private var searchFilter: NodeType?
+    
+    private var filteredResults: [MindNode] {
+        if let filter = searchFilter {
+            return searchResults.filter { $0.type == filter }
+        }
+        return searchResults
+    }
+    
     private var searchResultsView: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Header
-            HStack {
-                Text("\(searchResults.count) results")
+            // Header with type filters
+            HStack(spacing: Theme.Spacing.sm) {
+                Text("\(filteredResults.count) results")
                     .font(Theme.Fonts.caption)
                     .foregroundStyle(.secondary)
+                
                 Spacer()
+                
+                // Type filter pills
+                HStack(spacing: 4) {
+                    filterPill(label: "All", isSelected: searchFilter == nil) {
+                        searchFilter = nil
+                    }
+                    ForEach(NodeType.allCases, id: \.self) { type in
+                        let count = searchResults.filter { $0.type == type }.count
+                        if count > 0 {
+                            filterPill(label: "\(type.rawValue) \(count)", isSelected: searchFilter == type) {
+                                searchFilter = type
+                            }
+                        }
+                    }
+                }
             }
             .padding(.horizontal, Theme.Spacing.lg)
             .padding(.vertical, Theme.Spacing.sm)
@@ -295,11 +336,23 @@ struct RootView: View {
             Divider()
             
             // Results list
-            List(searchResults) { node in
+            List(filteredResults) { node in
                 SearchResultRow(node: node, selectedNode: $selectedNode)
             }
             .listStyle(.plain)
         }
+    }
+    
+    private func filterPill(label: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(label)
+                .font(Theme.Fonts.tiny)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(isSelected ? Theme.Colors.accent.opacity(0.15) : Color.clear, in: Capsule())
+                .foregroundStyle(isSelected ? Theme.Colors.accent : .secondary)
+        }
+        .buttonStyle(.plain)
     }
     
     // MARK: - Inspector Empty State

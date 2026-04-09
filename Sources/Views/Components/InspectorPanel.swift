@@ -193,16 +193,27 @@ struct InspectorPanel: View {
                     VStack(spacing: 2) {
                         ForEach(connected.prefix(8)) { c in
                             HStack(spacing: Theme.Spacing.sm) {
-                                Image(systemName: c.type.sfIcon)
-                                    .font(.system(size: 12))
+                                Circle()
+                                    .fill(Theme.Colors.typeColor(c.type))
+                                    .frame(width: 6, height: 6)
                                 Text(c.title)
                                     .font(Theme.Fonts.caption)
                                     .lineLimit(1)
                                 Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 8))
+                                    .foregroundStyle(.tertiary)
                             }
                             .padding(.horizontal, Theme.Spacing.sm)
                             .padding(.vertical, 4)
                             .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: Theme.Radius.chip))
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                NotificationCenter.default.post(
+                                    name: NSNotification.Name("SelectNode"),
+                                    object: c
+                                )
+                            }
                         }
                     }
                 }
@@ -220,15 +231,31 @@ struct InspectorPanel: View {
                 .tracking(1)
             
             VStack(alignment: .leading, spacing: 3) {
-                metaRow(icon: "clock", text: node.createdAt.formatted(date: .abbreviated, time: .shortened))
+                metaRow(icon: "clock", text: "Created " + node.createdAt.formatted(date: .abbreviated, time: .shortened))
+                metaRow(icon: "pencil", text: "Updated " + node.updatedAt.formatted(date: .abbreviated, time: .shortened))
+                metaRow(icon: "eye", text: "Viewed \(node.accessCount) times")
+                if node.accessCount > 0 {
+                    metaRow(icon: "clock.arrow.circlepath", text: "Last viewed " + node.lastAccessedAt.formatted(date: .abbreviated, time: .shortened))
+                }
                 if let origin = node.sourceOrigin {
-                    metaRow(icon: "arrow.triangle.branch", text: origin)
+                    metaRow(icon: "arrow.triangle.branch", text: "Via " + origin)
                 }
                 if let due = node.dueDate {
                     metaRow(icon: "calendar", text: due.formatted(date: .abbreviated, time: .omitted))
                 }
+                // Parent project
+                if let project = parentProject {
+                    metaRow(icon: "folder", text: project.title)
+                }
             }
         }
+    }
+    
+    private var parentProject: MindNode? {
+        store.links.values
+            .filter { $0.targetID == node.id && $0.linkType == .belongsTo }
+            .compactMap { store.nodes[$0.sourceID] }
+            .first { $0.type == .project }
     }
     
     private func metaRow(icon: String, text: String) -> some View {

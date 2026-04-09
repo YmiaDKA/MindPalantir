@@ -78,18 +78,64 @@ struct TodayView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 // Quick add — floating at top
-                QuickAddBar()
+                QuickAddBar(focusedProject: focusProject)
                     .padding(.horizontal, Theme.Spacing.xxl)
                     .padding(.top, Theme.Spacing.lg)
                     .padding(.bottom, Theme.Spacing.md)
 
-                // The canvas
-                canvas
-                    .padding(.horizontal, Theme.Spacing.xxl)
-                    .padding(.bottom, Theme.Spacing.xxl)
+                if focusProject == nil && openTasks.isEmpty && store.nodes.isEmpty {
+                    emptyState
+                } else {
+                    // The canvas
+                    canvas
+                        .padding(.horizontal, Theme.Spacing.xxl)
+                        .padding(.bottom, Theme.Spacing.xxl)
+                }
             }
         }
         .background(Theme.Colors.windowBackground)
+    }
+
+    // MARK: - Empty State
+
+    private var emptyState: some View {
+        VStack(spacing: Theme.Spacing.xl) {
+            Spacer().frame(height: 80)
+            Image(systemName: "square.grid.2x2")
+                .font(.system(size: 48))
+                .foregroundStyle(Theme.Colors.accent.opacity(0.3))
+            VStack(spacing: Theme.Spacing.sm) {
+                Text("Your desk is empty")
+                    .font(Theme.Fonts.largeTitle)
+                    .foregroundStyle(.secondary)
+                Text("Use the Quick Add bar above to capture\nyour first project, task, or note.")
+                    .font(Theme.Fonts.body)
+                    .foregroundStyle(.tertiary)
+                    .multilineTextAlignment(.center)
+            }
+            HStack(spacing: Theme.Spacing.md) {
+                quickStartButton(icon: "folder", label: "New Project", type: .project)
+                quickStartButton(icon: "checklist", label: "New Task", type: .task)
+                quickStartButton(icon: "doc.text", label: "New Note", type: .note)
+            }
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func quickStartButton(icon: String, label: String, type: NodeType) -> some View {
+        Button {
+            let node = MindNode(type: type, title: label, sourceOrigin: "quick_add")
+            try? store.insertNode(node)
+        } label: {
+            Label(label, systemImage: icon)
+                .font(Theme.Fonts.caption)
+                .padding(.horizontal, Theme.Spacing.md)
+                .padding(.vertical, Theme.Spacing.sm)
+                .background(Theme.Colors.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: Theme.Radius.chip))
+                .foregroundStyle(Theme.Colors.accent)
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Canvas
@@ -466,10 +512,12 @@ struct SpatialTaskRow: View {
     }
 
     private func toggleComplete() {
-        var updated = task
-        updated.status = task.status == .completed ? .active : .completed
-        updated.updatedAt = .now
-        try? store.insertNode(updated)
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+            var updated = task
+            updated.status = task.status == .completed ? .active : .completed
+            updated.updatedAt = .now
+            try? store.insertNode(updated)
+        }
     }
 }
 
