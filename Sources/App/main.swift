@@ -7,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var store = NodeStore()
     private var watcher: WatcherService?
     private var relevanceEngine: RelevanceEngine?
+    private var calendarSyncTimer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSLog("App launching, setting up window...")
@@ -49,6 +50,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 let calCount = await calImporter.importEvents(store: store)
                 NSLog("📅 Calendar: imported \(calCount) events")
                 store.checkpoint()
+
+                // Periodic calendar sync — keeps events fresh
+                calendarSyncTimer = Timer.scheduledTimer(withTimeInterval: 900, repeats: true) { [weak self] _ in
+                    guard let self else { return }
+                    Task { @MainActor in
+                        let count = await calImporter.importEvents(store: self.store)
+                        if count > 0 {
+                            NSLog("📅 Calendar sync: \(count) new events")
+                            self.store.checkpoint()
+                        }
+                    }
+                }
 
                 // Start background services
                 let w = WatcherService(store: store)

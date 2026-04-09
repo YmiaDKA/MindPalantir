@@ -168,8 +168,12 @@ final class RelevanceEngine {
     // MARK: - Signal: Access Frequency
 
     /// User has been looking at this = it matters to them.
+    /// Combines recency of access with total access count (preference memory).
     private func accessFrequencyScore(_ node: MindNode) -> Double {
         let hoursSinceAccess = Date.now.timeIntervalSince(node.lastAccessedAt) / 3600
-        return exp(-hoursSinceAccess / (3 * 24 * 0.693)) // half-life = 3 days
+        let recencyScore = exp(-hoursSinceAccess / (3 * 24 * 0.693)) // half-life = 3 days
+        // Access count bonus: frequently viewed items get a boost (log scale, caps at ~0.3)
+        let countBonus = min(0.3, log2(Double(node.accessCount) + 1) * 0.1)
+        return min(1.0, recencyScore + countBonus)
     }
 }

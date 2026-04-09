@@ -4,6 +4,7 @@ import SwiftUI
 struct ChatView: View {
     @Environment(NodeStore.self) private var store
     @Binding var selectedNode: MindNode?
+    var focusedProject: MindNode? = nil
     @State private var messages: [ChatMessage] = []
     @State private var inputText = ""
     @State private var isThinking = false
@@ -43,6 +44,13 @@ struct ChatView: View {
                 .font(Theme.Fonts.headline)
 
             Spacer()
+
+            if let proj = focusedProject {
+                Label(proj.title, systemImage: "folder.fill")
+                    .font(Theme.Fonts.caption)
+                    .foregroundStyle(Theme.Colors.typeColor(.project))
+                    .lineLimit(1)
+            }
 
             Text("\(store.nodes.count) nodes")
                 .font(Theme.Fonts.caption)
@@ -215,7 +223,7 @@ struct ChatView: View {
         currentTask?.cancel()
         currentTask = Task { @MainActor in
             do {
-                let routedContext = BrainContext.route(question: text, store: store)
+                let routedContext = BrainContext.route(question: text, store: store, focusedProject: focusedProject)
                 let systemMsg = ChatMessage(role: "system", content: routedContext)
                 let fullMessages = [systemMsg] + messages
 

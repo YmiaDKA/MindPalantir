@@ -32,6 +32,7 @@ struct MindNode: Identifiable, Codable, Sendable, Equatable {
     var createdAt: Date
     var updatedAt: Date
     var lastAccessedAt: Date
+    var accessCount: Int           // how many times user has viewed this
 
     // Relevance & Confidence — the two scoring systems
     var relevance: Double       // 0.0 ... 1.0 — what shows on Today/Desktop
@@ -72,6 +73,7 @@ struct MindNode: Identifiable, Codable, Sendable, Equatable {
         self.createdAt = .now
         self.updatedAt = .now
         self.lastAccessedAt = .now
+        self.accessCount = 0
         self.relevance = relevance
         self.confidence = confidence
         self.status = status
@@ -84,6 +86,7 @@ struct MindNode: Identifiable, Codable, Sendable, Equatable {
     /// Touch — updates access time and bumps relevance
     mutating func touch() {
         lastAccessedAt = .now
+        accessCount += 1
         relevance = min(1.0, relevance + 0.03)
     }
 }

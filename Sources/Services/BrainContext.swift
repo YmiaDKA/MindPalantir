@@ -24,8 +24,15 @@ struct BrainContext {
 
     /// Route a question to the right context pack.
     /// This is the ONLY entry point the chat should use.
-    static func route(question: String, store: NodeStore) -> String {
-        let anchor = detectAnchor(question: question, store: store)
+    /// focusedProject: if the user is viewing a project, use it as a hint.
+    static func route(question: String, store: NodeStore, focusedProject: MindNode? = nil) -> String {
+        var anchor = detectAnchor(question: question, store: store)
+
+        // If the user is viewing a project and the question doesn't clearly
+        // point elsewhere, bias toward that project
+        if let proj = focusedProject, anchor.0 == .today {
+            anchor = (.project, proj)
+        }
 
         // Build the context pack from the anchor
         let pack = buildPack(anchor: anchor, question: question, store: store)

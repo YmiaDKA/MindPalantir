@@ -45,6 +45,7 @@ final class NodeStore {
         // try exec("PRAGMA foreign_keys=ON")
         
         try createTables()
+        try migrateSchema()
         try loadAll()
         
         // Force checkpoint on open to consolidate any leftover WAL
@@ -85,7 +86,8 @@ final class NodeStore {
             pinned INTEGER DEFAULT 0,
             source_origin TEXT,
             metadata TEXT DEFAULT '{}',
-            due_date REAL
+            due_date REAL,
+            access_count INTEGER DEFAULT 0
         );
         CREATE INDEX IF NOT EXISTS idx_nodes_type ON nodes(type);
         CREATE INDEX IF NOT EXISTS idx_nodes_relevance ON nodes(relevance DESC);
@@ -120,14 +122,21 @@ final class NodeStore {
         """)
     }
 
+    // MARK: - Migration
+
+    private func migrateSchema() throws {
+        // Add access_count column if missing (existing databases)
+        try? exec("ALTER TABLE nodes ADD COLUMN access_count INTEGER DEFAULT 0")
+    }
+
     // MARK: - Node CRUD
 
     func insertNode(_ node: MindNode) throws {
         let sql = """
         INSERT OR REPLACE INTO nodes
         (id, type, title, body, created_at, updated_at, last_accessed_at,
-         relevance, confidence, status, pinned, source_origin, metadata, due_date)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         relevance, confidence, status, pinned, source_origin, metadata, due_date, access_count)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { throw StoreError.queryFailed }
@@ -161,6 +170,7 @@ final class NodeStore {
         } else {
             sqlite3_bind_null(stmt, 14)
         }
+        sqlite3_bind_int(stmt, 15, Int32(node.accessCount))
 
         guard sqlite3_step(stmt) == SQLITE_DONE else {
             let errMsg = sqlite3_errmsg(db).map { String(cString: $0) } ?? "unknown"
@@ -479,12 +489,19 @@ final class NodeStore {
         let metadata = (try? JSONDecoder().decode([String: String].self, from: Data(metaJSON.utf8))) ?? [:]
         let dueDate: Date? = sqlite3_column_type(stmt, 13) != SQLITE_NULL
             ? Date(timeIntervalSince1970: sqlite3_column_double(stmt, 13)) : nil
+        let accessCount = Int(sqlite3_column_int(stmt, 14))
 
-        return MindNode(
+        var node = MindNode(
             id: id, type: type, title: title, body: body,
             relevance: relevance, confidence: confidence, status: status,
             pinned: pinned, sourceOrigin: sourceOrigin, metadata: metadata, dueDate: dueDate
         )
+        // Restore timestamps from DB (init sets them to .now)
+        node.createdAt = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 4))
+        node.updatedAt = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 5))
+        node.lastAccessedAt = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 6))
+        node.accessCount = accessCount
+        return node
     }
 
     private func readLink(_ stmt: OpaquePointer?) -> MindLink? {

@@ -94,6 +94,12 @@ struct RootView: View {
         }
         .onChange(of: selectedNode) { _, newNode in
             showInspector = newNode != nil
+            // Track access — preference memory
+            if var node = newNode {
+                node.lastAccessedAt = Date()
+                node.accessCount += 1
+                try? store.insertNode(node)
+            }
         }
         .onChange(of: selectedScreen) { _, _ in
             navigateToProject = nil
@@ -251,7 +257,7 @@ struct RootView: View {
             case .today: TodayView(selectedNode: $selectedNode, onOpenProject: { project in
                 withAnimation { navigateToProject = project }
             })
-            case .chat: ChatView(selectedNode: $selectedNode)
+            case .chat: ChatView(selectedNode: $selectedNode, focusedProject: navigateToProject)
             case .projects: ProjectListView(selectedNode: $selectedNode)
             case .notes: NodeListView(type: .note, selectedNode: $selectedNode)
             case .tasks: NodeListView(type: .task, selectedNode: $selectedNode)
