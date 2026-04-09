@@ -1,67 +1,76 @@
-# Checkpoint — April 9, 2026 ~17:00 CEST
+# Checkpoint — April 9, 2026 ~17:30 CEST
 
 ## Session summary
-Redesigned ProjectDetailView as a card dashboard, following checkpoint from previous session.
+Autonomous loop: 8 iterations. UX consistency pass + living workspace features.
 
-## What changed (1 commit, pushed to GitHub)
+## What changed (8 commits, all pushed)
 
-### 1. ProjectDetailView → Card Dashboard
-- **Before:** Flat scrollable list — header + section() calls for each type
-- **After:** Card dashboard with 5 distinct card panels in a 2-column adaptive grid
-- Overview card: title, status pill, confidence badge, full-width progress bar with percentage, stats row (connected/tasks/notes/sources + relative update time)
-- Tasks card: open tasks sorted by relevance + up to 3 completed, inline toggle, due dates, relevance dots
-- Activity card: recent notes + tasks from last 14 days with type icons and relative timestamps
-- People card: connected people with roles from body text
-- Events card: upcoming events with relative due dates (red if overdue)
-- Sources card: linked sources with confidence badges
-- Quick Add card: one-tap add for all 5 node types (task/note/person/event/source)
-- `DashboardCard` — reusable card panel component with icon, title, count pill
-- `AdaptiveCardGrid` — LazyVGrid with 2 flexible columns, collapses to 1 on narrow
+### 1. Multi-signal relevance engine (RelevanceEngine.swift)
+- Replaced disconnected formula with 7 weighted signals: recency (0.25), open state (0.20), connections (0.15), project activity (0.15), event proximity (0.10), access frequency (0.10), pin boost (0.05)
+- Completed/archived get steep penalties (0.05/0.02 floor)
+- Exponential decay half-lives: recency 7 days, access 3 days
 
-### Design decisions
-- All cards use `Theme` system: Fonts, Spacing (8pt grid), Radius (10pt cards), Colors
-- `regularMaterial` → `controlBackgroundColor` for cards (matches Today view)
-- Cards have subtle 0.5pt border (`.quaternary`) for edge definition
-- Overview card gets accent border (0.12 opacity purple) for hierarchy
-- Stats in overview use small icon+value+label format, compact but readable
-- Activity card auto-shows recent changes — makes project feel alive
+### 2. Project card dashboard (ProjectDetailView.swift)
+- Complete redesign: flat list → card dashboard with AdaptiveCardGrid (2-column)
+- 6 cards: Tasks, Activity, People, Events, Sources, Quick Add
+- DashboardCard reusable component, Overview card with progress/stats
 
-## Also done this session (before checkpoint reload)
-- SF Symbols migration (all views from emoji to Image(systemName:))
-- 8 AI brain tools (delete, list, find_connections, get_node_details)
-- Streaming chat with stop button
-- Swipe-to-delete in lists and inspector
-- FTS5 full-text search with Porter stemming
-- Keyboard shortcuts (Cmd+1-8, Cmd+N, Cmd+I)
-- Inbox promote workflow
-- Memory Router (BrainContext.swift) — intent-based retrieval instead of dumping all nodes
-- Today View — all 6 sections (hero + tasks + people + events + recent + clarification)
-- Project Detail — progress bar, stats, inline task toggle
+### 3. Auto-discovered related content
+- Project finds nodes mentioning its title even without explicit links
+- One-click link button to connect discovered content
+
+### 4. Watched folder (Karpathy wiki insight)
+- Point project at directory via NSOpenPanel
+- Scans for new files, one-click import or batch import all
+- FileIngestor.scan() accepts custom paths
+
+### 5. Auto-link from ingestion
+- WatcherService auto-links imported files to projects they mention
+- Closes the loop: file lands → ingested → linked → shows in project
+
+### 6. Full UX consistency pass
+- ALL views now use Theme.Fonts, Theme.Spacing, Theme.Radius, Theme.Colors
+- NodeListView, TimelineView, ChatView, InboxView, ClarificationView, QuickAddBar
+- Removed hardcoded .purple → Theme.Colors.accent everywhere
+- Removed raw spacing numbers (8, 10, 14) → Theme.Spacing.sm/md/lg
+- Removed raw corner radii (6, 8, 10, 12) → Theme.Radius.chip/card
+- Node type icons now colored via Theme.Colors.typeColor
+
+### 7. Navigation fix
+- Clicking project in Today/sidebar → navigates to ProjectDetailView (was: opens inspector)
+- Back button to return from project dashboard
+- onOpenProject callback pattern, clean architecture
+- Screen change clears project navigation
+
+### 8. Sidebar improvements
+- Screen items show node counts (e.g., "Tasks 12")
+- Active screen icon highlights with Theme.Colors.accent
+- Project sidebar shows open task count
+- Removed dead GraphOverlay.swift (hardcoded white, never wired up)
+
+### 9. Today view: all projects strip
+- Horizontal card strip showing all active projects (not just focus one)
+- Mini progress bars, task counts
+- Tapping navigates to project dashboard
 
 ## Current repo state
 - GitHub: https://github.com/YmiaDKA/MindPalantir
 - Branch: main (all pushed)
-- Builds clean, no warnings
-- 29 Swift source files
+- Builds clean, no errors (pre-existing warnings in DataSeeder, ICloudScanner)
+- 28 Swift source files
 
-## What's still missing (from PRODUCT_CONTEXT.md)
+## What's still missing
 1. No Hermes integration (ingestion, classification, routines)
 2. No preference/taste memory
-3. Relevance engine is formulaic, not adaptive
-4. No source import dedupe pipeline
-5. Project view could still go deeper (activity timeline, file attachments)
+3. Relevance engine is better but could use ML signals
+4. No source import dedupe pipeline (same file imported twice)
+5. Chat view needs richer context from project workspaces
 
-## Next highest-value tasks (pick one)
-- **Enhance Today view relevance** — make the focus project selection smarter (consider recency + task count + connections, not just pinned + relevance threshold)
-- **Add Hermes ingestion hooks** — basic file watcher that classifies and creates nodes from dropped files
-- **Improve relevance engine** — move from formulaic scoring to multi-signal (recency, connections, project activity, task completion rate)
-- **Project activity timeline** — show chronological changes within a project, not just recent items
-
-## Files to read first in new session
-1. `PRODUCT_CONTEXT.md` — what the app IS
-2. `AGENTS.md` — how to work with the codebase
-3. `HERMES_OPERATING_CONTRACT.md` — operating loop, invariant, build priority
-4. `HERMES_RUNTIME_RULES.md` — runtime behavior, checkpoint rules, Telegram escalation
+## Next high-value tasks
+- **Chat context from project workspace** — when chatting about a project, the AI should see that project's full context (tasks, notes, files)
+- **Dedupe pipeline** — prevent re-importing same files
+- **Hermes auto-classification** — file watcher should classify new files as task/note/source instead of always creating source nodes
+- **Project activity timeline** — chronological changes within a project
 
 ## Build command
 ```bash
