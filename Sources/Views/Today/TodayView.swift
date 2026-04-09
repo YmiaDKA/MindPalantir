@@ -1,14 +1,13 @@
 import SwiftUI
 
-/// The "desk" — shows what matters NOW.
-/// Two-column layout: focus area (left) + panels (right).
-/// Desktop-like, not a list.
+/// The desk — a spatial canvas of what matters now.
+/// Inspired by Muse: cards with depth, organic spacing, no grid feel.
+/// Each card breathes. The canvas has weight.
 struct TodayView: View {
     @Environment(NodeStore.self) private var store
     @Binding var selectedNode: MindNode?
     var onOpenProject: ((MindNode) -> Void)? = nil
     
-    // What matters right now
     private var focusProject: MindNode? {
         store.activeNodes(ofType: .project)
             .filter { $0.pinned || $0.relevance > 0.7 }
@@ -20,7 +19,7 @@ struct TodayView: View {
         store.activeNodes(ofType: .task)
             .filter { $0.status != .completed }
             .sorted { $0.relevance > $1.relevance }
-            .prefix(6)
+            .prefix(5)
             .map { $0 }
     }
     
@@ -32,38 +31,28 @@ struct TodayView: View {
         store.activeNodes(ofType: .task).filter { $0.status != .completed }.count
     }
 
-    /// People connected to active projects
     private var relevantPeople: [MindNode] {
         guard let project = focusProject else {
-            return store.activeNodes(ofType: .person).prefix(4).map { $0 }
+            return store.activeNodes(ofType: .person).prefix(3).map { $0 }
         }
         let connected = store.connectedNodes(for: project.id).filter { $0.type == .person }
-        if connected.isEmpty {
-            return store.activeNodes(ofType: .person).prefix(4).map { $0 }
-        }
-        return connected
+        return connected.isEmpty ? store.activeNodes(ofType: .person).prefix(3).map { $0 } : connected
     }
 
-    /// Upcoming events (next 7 days)
     private var upcomingEvents: [MindNode] {
         let now = Date.now
-        let weekFromNow = now.addingTimeInterval(7 * 86400)
+        let week = now.addingTimeInterval(7 * 86400)
         return store.nodes(ofType: .event)
-            .filter { node in
-                guard let due = node.dueDate else { return false }
-                return due >= now && due <= weekFromNow
-            }
+            .filter { guard let d = $0.dueDate else { return false }; return d >= now && d <= week }
             .sorted { ($0.dueDate ?? .now) < ($1.dueDate ?? .now) }
-            .prefix(4)
+            .prefix(3)
             .map { $0 }
     }
 
-    /// Low-confidence items needing user attention
     private var needsClarification: [MindNode] {
         store.uncertainNodes(limit: 3)
     }
 
-    /// Other active projects (excluding the focus project)
     private var otherProjects: [MindNode] {
         store.activeNodes(ofType: .project)
             .filter { $0.id != focusProject?.id }
@@ -72,14 +61,13 @@ struct TodayView: View {
             .map { $0 }
     }
 
-    /// Resurfacing: items untouched 7-30 days but still relevant
     private var resurfacedItems: [MindNode] {
         let now = Date.now.timeIntervalSince1970
         return store.nodes.values
-            .filter { node in
-                guard node.status == .active && !node.pinned else { return false }
-                let daysSince = (now - node.lastAccessedAt.timeIntervalSince1970) / 86400
-                return daysSince >= 7 && daysSince <= 30 && node.relevance >= 0.15
+            .filter {
+                guard $0.status == .active, !$0.pinned else { return false }
+                let days = (now - $0.lastAccessedAt.timeIntervalSince1970) / 86400
+                return days >= 7 && days <= 30 && $0.relevance >= 0.15
             }
             .sorted { $0.relevance > $1.relevance }
             .prefix(3)
@@ -88,312 +76,266 @@ struct TodayView: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 0) {
-                // Quick add — full width
-                quickAdd
-                    .padding(.horizontal, Theme.Spacing.xl)
-                    .padding(.vertical, Theme.Spacing.lg)
+            VStack(alignment: .leading, spacing: 0) {
+                // Quick add — floating at top
+                QuickAddBar()
+                    .padding(.horizontal, Theme.Spacing.xxl)
+                    .padding(.top, Theme.Spacing.lg)
+                    .padding(.bottom, Theme.Spacing.md)
 
-                Divider()
-                    .padding(.horizontal, Theme.Spacing.xl)
+                // The canvas
+                canvas
+                    .padding(.horizontal, Theme.Spacing.xxl)
+                    .padding(.bottom, Theme.Spacing.xxl)
+            }
+        }
+        .background(Theme.Colors.windowBackground)
+    }
 
-                // Two-column layout
-                HStack(alignment: .top, spacing: Theme.Spacing.xl) {
-                    // LEFT: Focus area
-                    leftColumn
+    // MARK: - Canvas
 
-                    // RIGHT: Panels
-                    rightColumn
-                        .frame(maxWidth: 340)
-                }
-                .padding(.horizontal, Theme.Spacing.xl)
-                .padding(.vertical, Theme.Spacing.lg)
+    private var canvas: some View {
+        // Muse-like layout: main card prominent, supporting cards flow around it.
+        // No rigid grid — cards have organic spacing and varied sizes.
+        HStack(alignment: .top, spacing: Theme.Spacing.xl) {
+            // LEFT — the main workspace
+            mainWorkspace
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            // RIGHT — supporting panels (compact)
+            sidePanels
+                .frame(width: 280)
+        }
+    }
+
+    // MARK: - Main Workspace (left)
+
+    private var mainWorkspace: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.xxl) {
+            // Focus: the hero card — big, breathing, takes space
+            if let project = focusProject {
+                SpatialFocusCard(project: project, store: store, selectedNode: $selectedNode, onOpenProject: onOpenProject)
+            }
+
+            // Tasks — inline, not in a separate panel
+            if !openTasks.isEmpty {
+                taskBoard
+            }
+
+            // Other projects — as a flowing row of cards
+            if !otherProjects.isEmpty {
+                projectBoard
+            }
+
+            // Recent — scattered chips
+            if !recentActivity.isEmpty {
+                recentBoard
             }
         }
     }
 
-    // MARK: - Left Column (Focus)
+    // MARK: - Side Panels (right)
 
-    private var leftColumn: some View {
+    private var sidePanels: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.xl) {
-            // Focus project
-            if let project = focusProject {
-                VStack(alignment: .leading, spacing: Theme.Spacing.md) {
-                    sectionLabel("FOCUS")
-                    FocusCard(project: project, store: store, selectedNode: $selectedNode, onOpenProject: onOpenProject)
-                }
-            }
-
-            // Other projects
-            if !otherProjects.isEmpty {
-                VStack(alignment: .leading, spacing: Theme.Spacing.md) {
-                    sectionLabel("OTHER PROJECTS")
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 200), spacing: Theme.Spacing.sm)], spacing: Theme.Spacing.sm) {
-                        ForEach(otherProjects) { project in
-                            miniProjectCard(project)
-                        }
+            // Events
+            if !upcomingEvents.isEmpty {
+                SidePanel(title: "Upcoming", icon: "calendar") {
+                    ForEach(upcomingEvents) { event in
+                        eventRow(event)
                     }
                 }
             }
 
-            // Recent activity
-            if !recentActivity.isEmpty {
-                VStack(alignment: .leading, spacing: Theme.Spacing.md) {
-                    sectionLabel("RECENT")
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: Theme.Spacing.sm)], spacing: Theme.Spacing.sm) {
-                        ForEach(recentActivity) { node in
-                            RecentChip(node: node, selectedNode: $selectedNode)
+            // People
+            if !relevantPeople.isEmpty {
+                SidePanel(title: "People", icon: "person.2") {
+                    ForEach(relevantPeople.prefix(3)) { person in
+                        HStack(spacing: Theme.Spacing.sm) {
+                            Image(systemName: "person.circle.fill")
+                                .font(.system(size: 16))
+                                .foregroundStyle(.purple.opacity(0.5))
+                            Text(person.title)
+                                .font(Theme.Fonts.body)
+                                .lineLimit(1)
+                            Spacer()
                         }
+                        .padding(.vertical, 2)
+                        .contentShape(Rectangle())
+                        .onTapGesture { selectedNode = person }
+                    }
+                }
+            }
+
+            // Needs attention
+            if !needsClarification.isEmpty {
+                SidePanel(title: "Needs Attention", icon: "exclamationmark.triangle", accent: .orange) {
+                    ForEach(needsClarification) { node in
+                        HStack(spacing: Theme.Spacing.sm) {
+                            Text(node.title)
+                                .font(Theme.Fonts.body)
+                                .lineLimit(1)
+                            Spacer()
+                            ConfidenceBadge(value: node.confidence)
+                        }
+                        .padding(.vertical, 2)
+                        .contentShape(Rectangle())
+                        .onTapGesture { selectedNode = node }
                     }
                 }
             }
 
             // Resurfacing
             if !resurfacedItems.isEmpty {
-                VStack(alignment: .leading, spacing: Theme.Spacing.md) {
-                    HStack(spacing: Theme.Spacing.sm) {
-                        sectionLabel("RESURFACING")
-                        Text("forgotten but relevant")
-                            .font(Theme.Fonts.caption)
-                            .foregroundStyle(.tertiary)
-                    }
-                    VStack(spacing: 1) {
-                        ForEach(resurfacedItems) { node in
-                            resurfacingRow(node)
+                SidePanel(title: "Resurfacing", icon: "arrow.clockwise", accent: .orange.opacity(0.7)) {
+                    ForEach(resurfacedItems) { node in
+                        HStack(spacing: Theme.Spacing.sm) {
+                            Image(systemName: node.type.sfIcon)
+                                .font(.system(size: 11))
+                                .foregroundStyle(Theme.Colors.typeColor(node.type))
+                            Text(node.title)
+                                .font(Theme.Fonts.caption)
+                                .lineLimit(1)
+                            Spacer()
+                            Circle()
+                                .fill(Theme.Colors.relevance(node.relevance))
+                                .frame(width: 4, height: 4)
                         }
+                        .padding(.vertical, 2)
+                        .contentShape(Rectangle())
+                        .onTapGesture { selectedNode = node }
                     }
-                    .background(Color(NSColor.controlBackgroundColor), in: RoundedRectangle(cornerRadius: Theme.Radius.card))
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    // MARK: - Right Column (Panels)
-
-    private var rightColumn: some View {
-        VStack(spacing: Theme.Spacing.lg) {
-            // Tasks panel
-            if !openTasks.isEmpty {
-                VStack(alignment: .leading, spacing: Theme.Spacing.md) {
-                    HStack {
-                        sectionLabel("TASKS")
-                        Spacer()
-                        Text("\(openTasks.count)")
-                            .font(Theme.Fonts.caption)
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(.quaternary, in: Capsule())
-                    }
-                    VStack(spacing: 1) {
-                        ForEach(openTasks) { task in
-                            TaskRow(task: task, selectedNode: $selectedNode)
-                        }
-                    }
-                    .background(Color(NSColor.controlBackgroundColor), in: RoundedRectangle(cornerRadius: Theme.Radius.card))
-                }
-            }
-
-            // People panel
-            if !relevantPeople.isEmpty {
-                VStack(alignment: .leading, spacing: Theme.Spacing.md) {
-                    sectionLabel("PEOPLE")
-                    VStack(spacing: Theme.Spacing.xs) {
-                        ForEach(relevantPeople.prefix(4)) { person in
-                            HStack(spacing: Theme.Spacing.sm) {
-                                Image(systemName: "person.circle.fill")
-                                    .font(.system(size: 20))
-                                    .foregroundStyle(.purple.opacity(0.6))
-                                Text(person.title)
-                                    .font(Theme.Fonts.body)
-                                    .lineLimit(1)
-                                Spacer()
-                            }
-                            .padding(.horizontal, Theme.Spacing.md)
-                            .padding(.vertical, Theme.Spacing.sm)
-                            .contentShape(Rectangle())
-                            .onTapGesture { selectedNode = person }
-                        }
-                    }
-                    .background(Color(NSColor.controlBackgroundColor), in: RoundedRectangle(cornerRadius: Theme.Radius.card))
-                }
-            }
-
-            // Events panel
-            if !upcomingEvents.isEmpty {
-                VStack(alignment: .leading, spacing: Theme.Spacing.md) {
-                    sectionLabel("UPCOMING")
-                    VStack(spacing: 1) {
-                        ForEach(upcomingEvents) { event in
-                            HStack(spacing: Theme.Spacing.sm) {
-                                Image(systemName: "calendar")
-                                    .font(.system(size: 13))
-                                    .foregroundStyle(.red.opacity(0.7))
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text(event.title)
-                                        .font(Theme.Fonts.body)
-                                        .lineLimit(1)
-                                    if let due = event.dueDate {
-                                        Text(due, style: .relative)
-                                            .font(Theme.Fonts.caption)
-                                            .foregroundStyle(.tertiary)
-                                    }
-                                }
-                                Spacer()
-                            }
-                            .padding(.horizontal, Theme.Spacing.md)
-                            .padding(.vertical, Theme.Spacing.sm)
-                            .contentShape(Rectangle())
-                            .onTapGesture { selectedNode = event }
-                        }
-                    }
-                    .background(Color(NSColor.controlBackgroundColor), in: RoundedRectangle(cornerRadius: Theme.Radius.card))
-                }
-            }
-
-            // Needs attention
-            if !needsClarification.isEmpty {
-                VStack(alignment: .leading, spacing: Theme.Spacing.md) {
-                    HStack {
-                        sectionLabel("NEEDS ATTENTION")
-                            .foregroundStyle(.orange)
-                        Spacer()
-                        Text("\(needsClarification.count)")
-                            .font(Theme.Fonts.caption)
-                            .foregroundStyle(.orange)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(.orange.opacity(0.15), in: Capsule())
-                    }
-                    VStack(spacing: 1) {
-                        ForEach(needsClarification) { node in
-                            HStack(spacing: Theme.Spacing.sm) {
-                                Image(systemName: "exclamationmark.triangle")
-                                    .font(.system(size: 12))
-                                    .foregroundStyle(.orange)
-                                Text(node.title)
-                                    .font(Theme.Fonts.body)
-                                    .lineLimit(1)
-                                Spacer()
-                                ConfidenceBadge(value: node.confidence)
-                            }
-                            .padding(.horizontal, Theme.Spacing.md)
-                            .padding(.vertical, Theme.Spacing.sm)
-                            .contentShape(Rectangle())
-                            .onTapGesture { selectedNode = node }
-                        }
-                    }
-                    .background(Color(NSColor.controlBackgroundColor), in: RoundedRectangle(cornerRadius: Theme.Radius.card))
                 }
             }
         }
     }
 
-    // MARK: - Quick Add
+    // MARK: - Task Board
 
-    private var quickAdd: some View {
-        QuickAddBar()
-    }
-
-    // MARK: - Section Label
-
-    private func sectionLabel(_ text: String) -> some View {
-        Text(text)
-            .font(Theme.Fonts.caption)
-            .fontWeight(.semibold)
-            .foregroundStyle(.secondary)
-            .tracking(0.5)
-    }
-
-    // MARK: - Mini Project Card
-
-    private func miniProjectCard(_ project: MindNode) -> some View {
-        let tasks = store.children(of: project.id, linkType: .belongsTo).filter { $0.type == .task }
-        let completed = tasks.filter { $0.status == .completed }.count
-
-        return VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 4) {
-                Image(systemName: "folder.fill")
-                    .font(.system(size: 11))
-                    .foregroundStyle(Theme.Colors.typeColor(.project))
-                Text(project.title)
+    private var taskBoard: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.md) {
+            HStack(spacing: Theme.Spacing.sm) {
+                Text("Tasks")
+                    .font(Theme.Fonts.sectionTitle)
+                    .foregroundStyle(.primary)
+                Text("\(openTasks.count)")
                     .font(Theme.Fonts.caption)
-                    .fontWeight(.medium)
-                    .lineLimit(1)
-                Spacer()
-                RelevanceDot(value: project.relevance)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(.quaternary, in: Capsule())
             }
 
-            if !tasks.isEmpty {
-                HStack(spacing: 4) {
-                    ProgressView(value: Double(completed), total: Double(tasks.count))
-                        .frame(width: 40)
-                        .controlSize(.mini)
-                    Text("\(completed)/\(tasks.count)")
-                        .font(Theme.Fonts.caption)
-                        .foregroundStyle(.secondary)
+            VStack(spacing: 1) {
+                ForEach(openTasks) { task in
+                    SpatialTaskRow(task: task, selectedNode: $selectedNode)
                 }
-            } else if !project.body.isEmpty {
-                Text(project.body)
-                    .font(Theme.Fonts.caption)
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
-            } else {
-                Text("No tasks")
-                    .font(Theme.Fonts.caption)
-                    .foregroundStyle(.tertiary)
             }
+            .background(
+                RoundedRectangle(cornerRadius: Theme.Radius.card)
+                    .fill(Color(NSColor.controlBackgroundColor))
+            )
         }
-        .padding(Theme.Spacing.sm)
-        .background(Color(NSColor.controlBackgroundColor).opacity(0.6), in: RoundedRectangle(cornerRadius: Theme.Radius.chip))
-        .contentShape(Rectangle())
-        .onTapGesture {
-            if let onOpenProject {
-                onOpenProject(project)
-            } else {
-                selectedNode = project
+    }
+
+    // MARK: - Project Board
+
+    private var projectBoard: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.md) {
+            Text("Other Projects")
+                .font(Theme.Fonts.sectionTitle)
+                .foregroundStyle(.primary)
+
+            // Flowing grid — not rigid
+            FlowLayout(spacing: Theme.Spacing.sm) {
+                ForEach(otherProjects) { project in
+                    SpatialProjectChip(project: project, store: store) {
+                        if let onOpenProject { onOpenProject(project) }
+                        else { selectedNode = project }
+                    }
+                }
             }
         }
     }
 
-    // MARK: - Resurfacing Row
+    // MARK: - Recent Board
 
-    private func resurfacingRow(_ node: MindNode) -> some View {
+    private var recentBoard: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.md) {
+            Text("Recent")
+                .font(Theme.Fonts.sectionTitle)
+                .foregroundStyle(.primary)
+
+            FlowLayout(spacing: Theme.Spacing.sm) {
+                ForEach(recentActivity) { node in
+                    SpatialRecentCard(node: node, selectedNode: $selectedNode)
+                }
+            }
+        }
+    }
+
+    // MARK: - Event Row
+
+    private func eventRow(_ event: MindNode) -> some View {
         HStack(spacing: Theme.Spacing.sm) {
-            Image(systemName: node.type.sfIcon)
-                .font(.system(size: 12))
-                .foregroundStyle(Theme.Colors.typeColor(node.type))
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text(node.title)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(event.title)
                     .font(Theme.Fonts.body)
                     .lineLimit(1)
-                Text("last touched \(node.lastAccessedAt, style: .relative) ago")
-                    .font(Theme.Fonts.caption)
-                    .foregroundStyle(.tertiary)
+                if let due = event.dueDate {
+                    Text(due, style: .relative)
+                        .font(Theme.Fonts.caption)
+                        .foregroundStyle(.tertiary)
+                }
             }
-
             Spacer()
-
-            Circle()
-                .fill(Theme.Colors.relevance(node.relevance))
-                .frame(width: 5, height: 5)
         }
-        .padding(.horizontal, Theme.Spacing.md)
-        .padding(.vertical, Theme.Spacing.sm)
+        .padding(.vertical, 2)
         .contentShape(Rectangle())
-        .onTapGesture { selectedNode = node }
+        .onTapGesture { selectedNode = event }
     }
 }
 
-// MARK: - Focus Card (hero project)
+// MARK: - Side Panel (compact card)
 
-struct FocusCard: View {
+struct SidePanel<Content: View>: View {
+    let title: String
+    let icon: String
+    var accent: Color = .secondary
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+            HStack(spacing: 5) {
+                Image(systemName: icon)
+                    .font(.system(size: 10))
+                    .foregroundStyle(accent)
+                Text(title)
+                    .font(Theme.Fonts.caption)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(accent)
+            }
+
+            VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+                content
+            }
+        }
+        .padding(Theme.Spacing.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: Theme.Radius.card)
+                .fill(Color(NSColor.controlBackgroundColor).opacity(0.5))
+        )
+    }
+}
+
+// MARK: - Spatial Focus Card (hero — the big one)
+
+struct SpatialFocusCard: View {
     let project: MindNode
     let store: NodeStore
     @Binding var selectedNode: MindNode?
-    var onOpenProject: ((MindNode) -> Void)? = nil
+    var onOpenProject: ((MindNode) -> Void)?
     
     private var tasks: [MindNode] {
         store.children(of: project.id, linkType: .belongsTo).filter { $0.type == .task }
@@ -406,62 +348,52 @@ struct FocusCard: View {
     }
     
     var body: some View {
-        VStack(alignment: .leading, spacing: Theme.Spacing.md) {
-            // Title row
-            HStack(spacing: Theme.Spacing.sm) {
+        VStack(alignment: .leading, spacing: Theme.Spacing.lg) {
+            // Title — big, bold, prominent
+            HStack(alignment: .top, spacing: Theme.Spacing.md) {
                 Image(systemName: "folder.fill")
-                    .font(.system(size: 18))
+                    .font(.system(size: 22))
                     .foregroundStyle(Theme.Colors.typeColor(.project))
+                    .padding(.top, 2)
                 
-                Text(project.title)
-                    .font(Theme.Fonts.largeTitle)
-                    .lineLimit(2)
+                VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+                    Text(project.title)
+                        .font(.system(size: 28, weight: .bold, design: .default))
+                        .foregroundStyle(.primary)
+                    
+                    if !project.body.isEmpty {
+                        Text(project.body)
+                            .font(Theme.Fonts.body)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(3)
+                    }
+                }
                 
                 Spacer()
                 
                 if project.pinned {
                     Image(systemName: "pin.fill")
-                        .font(.caption2)
+                        .font(.caption)
                         .foregroundStyle(.orange)
                 }
             }
             
-            // Description
-            if !project.body.isEmpty {
-                Text(project.body)
-                    .font(Theme.Fonts.body)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(3)
-            }
-            
-            // Stats row
+            // Stats — minimal, non-intrusive
             HStack(spacing: Theme.Spacing.lg) {
-                // Progress
                 if !tasks.isEmpty {
                     HStack(spacing: 6) {
                         ProgressView(value: Double(completedTasks.count), total: Double(tasks.count))
                             .frame(width: 60)
-                            .tint(Theme.Colors.relevance(project.relevance))
-                        Text("\(completedTasks.count)/\(tasks.count)")
+                            .tint(Theme.Colors.accent)
+                        Text("\(completedTasks.count)/\(tasks.count) tasks")
                             .font(Theme.Fonts.caption)
                             .foregroundStyle(.secondary)
                     }
                 }
                 
-                // Connections
                 Label("\(connections)", systemImage: "link")
                     .font(Theme.Fonts.caption)
-                    .foregroundStyle(.secondary)
-                
-                // Relevance
-                HStack(spacing: 4) {
-                    Capsule()
-                        .fill(.quaternary)
-                        .frame(width: 40, height: 3)
-                    Capsule()
-                        .fill(Theme.Colors.relevance(project.relevance))
-                        .frame(width: 40 * project.relevance, height: 3)
-                }
+                    .foregroundStyle(.tertiary)
                 
                 Spacer()
                 
@@ -470,60 +402,62 @@ struct FocusCard: View {
                     .foregroundStyle(.tertiary)
             }
         }
-        .padding(Theme.Spacing.lg)
+        .padding(Theme.Spacing.xl)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: Theme.Radius.card)
+            RoundedRectangle(cornerRadius: Theme.Radius.card * 1.5)
                 .fill(Color(NSColor.controlBackgroundColor))
         )
+        .shadow(color: .black.opacity(0.04), radius: 8, y: 2)
         .overlay(
-            RoundedRectangle(cornerRadius: Theme.Radius.card)
-                .strokeBorder(Theme.Colors.accent.opacity(0.15), lineWidth: 1)
+            RoundedRectangle(cornerRadius: Theme.Radius.card * 1.5)
+                .strokeBorder(Theme.Colors.accent.opacity(0.1), lineWidth: 1)
         )
-        .contentShape(Rectangle())
+        .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.card * 1.5))
         .onTapGesture {
-            if let onOpenProject {
-                onOpenProject(project)
-            } else {
-                selectedNode = project
-            }
+            if let onOpenProject { onOpenProject(project) }
+            else { selectedNode = project }
         }
     }
 }
 
-// MARK: - Task Row
+// MARK: - Spatial Task Row
 
-struct TaskRow: View {
+struct SpatialTaskRow: View {
     @Environment(NodeStore.self) private var store
     let task: MindNode
     @Binding var selectedNode: MindNode?
-    
+
     var body: some View {
         HStack(spacing: Theme.Spacing.md) {
-            // Checkbox
             Button { toggleComplete() } label: {
                 Image(systemName: task.status == .completed ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 15))
-                    .foregroundStyle(task.status == .completed ? .green : .secondary)
+                    .foregroundStyle(task.status == .completed ? .green : .secondary.opacity(0.6))
             }
             .buttonStyle(.plain)
-            
-            // Title
-            Text(task.title)
-                .font(Theme.Fonts.body)
-                .lineLimit(1)
-                .strikethrough(task.status == .completed)
-            
-            Spacer()
-            
-            // Due date if present
-            if let due = task.dueDate {
-                Text(due, style: .relative)
-                    .font(Theme.Fonts.caption)
-                    .foregroundStyle(due < Date() ? AnyShapeStyle(.red) : AnyShapeStyle(.tertiary))
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(task.title)
+                    .font(Theme.Fonts.body)
+                    .strikethrough(task.status == .completed)
+                if let due = task.dueDate {
+                    Text(due, style: .relative)
+                        .font(Theme.Fonts.caption)
+                        .foregroundStyle(due < Date() ? AnyShapeStyle(.red) : AnyShapeStyle(.tertiary))
+                }
             }
-            
-            // Relevance dot
+
+            Spacer()
+
+            // Parent project hint
+            if let project = parentProject {
+                Text(project.title)
+                    .font(Theme.Fonts.tiny)
+                    .foregroundStyle(Theme.Colors.accent.opacity(0.5))
+                    .lineLimit(1)
+            }
+
             Circle()
                 .fill(Theme.Colors.relevance(task.relevance))
                 .frame(width: 5, height: 5)
@@ -533,7 +467,14 @@ struct TaskRow: View {
         .contentShape(Rectangle())
         .onTapGesture { selectedNode = task }
     }
-    
+
+    private var parentProject: MindNode? {
+        store.links.values
+            .filter { $0.targetID == task.id && $0.linkType == .belongsTo }
+            .compactMap { store.nodes[$0.sourceID] }
+            .first { $0.type == .project }
+    }
+
     private func toggleComplete() {
         var updated = task
         updated.status = task.status == .completed ? .active : .completed
@@ -542,9 +483,64 @@ struct TaskRow: View {
     }
 }
 
-// MARK: - Recent Chip
+// MARK: - Spatial Project Chip
 
-struct RecentChip: View {
+struct SpatialProjectChip: View {
+    let project: MindNode
+    let store: NodeStore
+    let onTap: () -> Void
+
+    private var tasks: [MindNode] {
+        store.children(of: project.id, linkType: .belongsTo).filter { $0.type == .task }
+    }
+    private var completed: Int { tasks.filter { $0.status == .completed }.count }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 4) {
+                Image(systemName: "folder.fill")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Theme.Colors.typeColor(.project))
+                Text(project.title)
+                    .font(Theme.Fonts.caption)
+                    .fontWeight(.medium)
+                    .lineLimit(1)
+            }
+
+            if !tasks.isEmpty {
+                HStack(spacing: 4) {
+                    ProgressView(value: Double(completed), total: Double(tasks.count))
+                        .frame(width: 30)
+                        .controlSize(.mini)
+                    Text("\(completed)/\(tasks.count)")
+                        .font(Theme.Fonts.tiny)
+                        .foregroundStyle(.secondary)
+                }
+            } else if !project.body.isEmpty {
+                Text(project.body)
+                    .font(Theme.Fonts.tiny)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+            }
+        }
+        .padding(.horizontal, Theme.Spacing.md)
+        .padding(.vertical, Theme.Spacing.sm)
+        .background(
+            RoundedRectangle(cornerRadius: Theme.Radius.chip)
+                .fill(Color(NSColor.controlBackgroundColor).opacity(0.7))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.Radius.chip)
+                .strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.chip))
+        .onTapGesture(perform: onTap)
+    }
+}
+
+// MARK: - Spatial Recent Card
+
+struct SpatialRecentCard: View {
     @Environment(NodeStore.self) private var store
     let node: MindNode
     @Binding var selectedNode: MindNode?
@@ -557,32 +553,76 @@ struct RecentChip: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 4) {
                 Image(systemName: node.type.sfIcon)
-                    .font(.system(size: 11))
+                    .font(.system(size: 10))
                     .foregroundStyle(Theme.Colors.typeColor(node.type))
                 Text(node.updatedAt, style: .relative)
                     .font(Theme.Fonts.tiny)
                     .foregroundStyle(.tertiary)
             }
-            
+
             Text(node.title)
                 .font(Theme.Fonts.caption)
                 .lineLimit(2)
-                .frame(minWidth: 100, maxWidth: .infinity, alignment: .leading)
 
             if let project = parentProject {
                 Text(project.title)
                     .font(Theme.Fonts.tiny)
-                    .foregroundStyle(Theme.Colors.accent.opacity(0.7))
+                    .foregroundStyle(Theme.Colors.accent.opacity(0.5))
                     .lineLimit(1)
             }
         }
         .padding(Theme.Spacing.sm)
-        .frame(minWidth: 120, maxWidth: .infinity, alignment: .leading)
-        .background(Color(NSColor.controlBackgroundColor).opacity(0.6), in: RoundedRectangle(cornerRadius: Theme.Radius.chip))
-        .contentShape(Rectangle())
+        .frame(minWidth: 100, maxWidth: 160, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: Theme.Radius.chip)
+                .fill(Color(NSColor.controlBackgroundColor).opacity(0.5))
+        )
+        .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.chip))
         .onTapGesture { selectedNode = node }
+    }
+}
+
+// MARK: - Flow Layout (organic spacing, not rigid grid)
+
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let result = arrange(subviews: subviews, in: proposal.width ?? 0)
+        return CGSize(width: proposal.width ?? 0, height: result.height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let result = arrange(subviews: subviews, in: bounds.width)
+        for (index, frame) in result.frames.enumerated() {
+            subviews[index].place(
+                at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY),
+                proposal: ProposedViewSize(frame.size)
+            )
+        }
+    }
+
+    private func arrange(subviews: Subviews, in width: CGFloat) -> (frames: [CGRect], height: CGFloat) {
+        var frames: [CGRect] = []
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var rowHeight: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(ProposedViewSize(width: width, height: nil))
+            if x + size.width > width, x > 0 {
+                x = 0
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            frames.append(CGRect(x: x, y: y, width: size.width, height: size.height))
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
+
+        return (frames, y + rowHeight)
     }
 }
