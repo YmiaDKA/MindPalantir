@@ -39,13 +39,24 @@ struct FileIngestor {
         let gitRepos: [String]
     }
     
-    struct FileInfo {
+    struct FileInfo: Identifiable {
+        let id: String  // path as unique ID
         let path: String
         let name: String
         let ext: String
         let size: Int64
         let modified: Date
         let category: String
+
+        init(path: String, name: String, ext: String, size: Int64, modified: Date, category: String) {
+            self.id = path
+            self.path = path
+            self.name = name
+            self.ext = ext
+            self.size = size
+            self.modified = modified
+            self.category = category
+        }
     }
     
     struct DirInfo {
@@ -57,14 +68,15 @@ struct FileIngestor {
     
     // MARK: - Scan
     
-    /// Scan all configured directories (max 2 levels deep).
-    static func scan(maxDepth: Int = 2, maxFiles: Int = 200) -> ScanResult {
+    /// Scan directories (max 2 levels deep).
+    /// Pass custom paths or use default scanPaths.
+    static func scan(paths: [(String, String)]? = nil, maxDepth: Int = 2, maxFiles: Int = 200) -> ScanResult {
         var files: [FileInfo] = []
         var directories: [DirInfo] = []
         var gitRepos: [String] = []
         var scanned = 0
         
-        for (rawPath, category) in scanPaths {
+        for (rawPath, category) in (paths ?? scanPaths) {
             let expanded = NSString(string: rawPath).expandingTildeInPath
             guard FileManager.default.fileExists(atPath: expanded) else { continue }
             

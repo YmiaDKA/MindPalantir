@@ -66,6 +66,37 @@ struct ProjectDetailView: View {
             .map { $0 }
     }
 
+    // MARK: - Watched Folder
+
+    /// Path of the watched folder for this project (stored in metadata).
+    private var watchedFolderPath: String? {
+        project.metadata["watchedFolder"]
+    }
+
+    /// Files found in the watched folder.
+    private var watchedFiles: [FileIngestor.FileInfo] {
+        guard let path = watchedFolderPath else { return [] }
+        let expanded = NSString(string: path).expandingTildeInPath
+        guard FileManager.default.fileExists(atPath: expanded) else { return [] }
+
+        let result = FileIngestor.scan(
+            paths: [(expanded, "watched")],
+            maxDepth: 2,
+            maxFiles: 50
+        )
+        return result.files.sorted { $0.modified > $1.modified }
+    }
+
+    /// Watched files that are already imported as nodes (by path metadata).
+    private var importedWatchedPaths: Set<String> {
+        Set(store.nodes.values.compactMap { $0.metadata["path"] })
+    }
+
+    /// New files in watched folder not yet imported.
+    private var newWatchedFiles: [FileIngestor.FileInfo] {
+        watchedFiles.filter { !importedWatchedPaths.contains($0.path) }
+    }
+
     // MARK: - Body
 
     var body: some View {
@@ -105,6 +136,9 @@ struct ProjectDetailView: View {
                     if !discoveredNodes.isEmpty {
                         discoveredCard
                     }
+
+                    // Watched folder card
+                    watchedFolderCard
 
                     // Quick add card
                     quickAddCard
@@ -441,6 +475,158 @@ struct ProjectDetailView: View {
                 }
             }
         }
+    }
+
+    // MARK: - Watched Folder Card
+
+    private var watchedFolderCard: some View {
+        DashboardCard(
+            title: watchedFolderPath != nil ? "Watched Folder" : "Watch Folder",
+            icon: "eye",
+            count: watchedFiles.count,
+            showCount: watchedFolderPath != nil
+        ) {
+            if let folderPath = watchedFolderPath {
+                // Folder is set — show files
+                VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+                    // Path with change button
+                    HStack(spacing: 4) {
+                        Image(systemName: "folder")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.tertiary)
+                        Text((folderPath as NSString).lastPathComponent)
+                            .font(Theme.Fonts.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                        Spacer()
+                        Button("Change") { selectWatchedFolder() }
+                            .font(Theme.Fonts.caption)
+                            .buttonStyle(.plain)
+                            .foregroundStyle(Theme.Colors.accent)
+                    }
+
+                    // New files (not yet imported)
+                    if !newWatchedFiles.isEmpty {
+                        Text("\(newWatchedFiles.count) new files")
+                            .font(Theme.Fonts.tiny)
+                            .foregroundStyle(Theme.Colors.accent)
+                            .padding(.top, 2)
+
+                        ForEach(newWatchedFiles.prefix(5)) { file in
+                            HStack(spacing: Theme.Spacing.sm) {
+                                Image(systemName: iconForExt(file.ext))
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 14)
+                                Text(file.name)
+                                    .font(Theme.Fonts.body)
+                                    .lineLimit(1)
+                                Spacer()
+                                Button { importFile(file) } label: {
+                                    Image(systemName: "arrow.down.circle")
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(Theme.Colors.accent)
+                                }
+                                .buttonStyle(.plain)
+                                .help("Import to project")
+                            }
+                            .padding(.vertical, 2)
+                        }
+
+                        if newWatchedFiles.count > 5 {
+                            Button("Import all \(newWatchedFiles.count) files") {
+                                importAllNewFiles()
+                            }
+                            .font(Theme.Fonts.caption)
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            .tint(Theme.Colors.accent)
+                        }
+                    } else {
+                        Text("All files imported")
+                            .font(Theme.Fonts.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+            } else {
+                // No folder set — prompt to set one
+                VStack(spacing: Theme.Spacing.sm) {
+                    Text("Point this project at a folder to auto-import files")
+                        .font(Theme.Fonts.caption)
+                        .foregroundStyle(.tertiary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Button { selectWatchedFolder() } label: {
+                        Label("Choose Folder", systemImage: "folder.badge.plus")
+                            .font(Theme.Fonts.body)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .tint(Theme.Colors.accent)
+                }
+            }
+        }
+    }
+
+    private func selectWatchedFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.message = "Choose a folder for this project to watch"
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            var updated = project
+            var meta = updated.metadata
+            meta["watchedFolder"] = url.path
+            updated.metadata = meta
+            updated.updatedAt = .now
+            try? store.insertNode(updated)
+        }
+    }
+
+    private func importFile(_ file: FileIngestor.FileInfo) {
+        let node = MindNode(
+            type: .source,
+            title: file.name,
+            body: "\(file.path)\n\(file.ext.uppercased()) · \(formatSize(file.size))",
+            relevance: 0.7,
+            confidence: 0.9,
+            sourceOrigin: "watched_folder",
+            metadata: ["path": file.path, "ext": file.ext]
+        )
+        try? store.insertNode(node)
+
+        let link = MindLink(
+            sourceID: project.id,
+            targetID: node.id,
+            linkType: .fromSource
+        )
+        try? store.insertLink(link)
+    }
+
+    private func importAllNewFiles() {
+        for file in newWatchedFiles {
+            importFile(file)
+        }
+    }
+
+    private func iconForExt(_ ext: String) -> String {
+        switch ext {
+        case "swift", "py", "js", "ts", "rs", "go": "chevron.left.forwardslash.chevron.right"
+        case "md", "txt", "org": "doc.text"
+        case "pdf": "doc.richtext"
+        case "png", "jpg", "jpeg", "gif", "webp", "svg": "photo"
+        case "json", "yaml", "yml", "toml": "curlybraces"
+        case "csv", "tsv": "tablecells"
+        default: "doc"
+        }
+    }
+
+    private func formatSize(_ bytes: Int64) -> String {
+        let f = ByteCountFormatter()
+        f.allowedUnits = [.useKB, .useMB]
+        return f.string(fromByteCount: bytes)
     }
 
     // MARK: - Quick Add Card
