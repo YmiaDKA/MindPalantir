@@ -71,6 +71,21 @@ struct TodayView: View {
             .map { $0 }
     }
 
+    /// Resurfacing: items that haven't been touched in 7-30 days but are still active.
+    /// The "second chance" — knowledge that's fading but not forgotten.
+    private var resurfacedItems: [MindNode] {
+        let now = Date.now.timeIntervalSince1970
+        return store.nodes.values
+            .filter { node in
+                guard node.status == .active && !node.pinned else { return false }
+                let daysSince = (now - node.lastAccessedAt.timeIntervalSince1970) / 86400
+                return daysSince >= 7 && daysSince <= 30 && node.relevance >= 0.15
+            }
+            .sorted { $0.relevance > $1.relevance }
+            .prefix(3)
+            .map { $0 }
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Theme.Spacing.xl) {
@@ -110,6 +125,11 @@ struct TodayView: View {
                 // Needs clarification
                 if !needsClarification.isEmpty {
                     clarificationSection
+                }
+
+                // Resurfacing: old but still relevant
+                if !resurfacedItems.isEmpty {
+                    resurfacingSection
                 }
             }
             .padding(.horizontal, Theme.Spacing.lg)
@@ -343,6 +363,55 @@ struct TodayView: View {
                         Spacer()
 
                         ConfidenceBadge(value: node.confidence)
+                    }
+                    .padding(.horizontal, Theme.Spacing.md)
+                    .padding(.vertical, Theme.Spacing.sm)
+                    .contentShape(Rectangle())
+                    .onTapGesture { selectedNode = node }
+                }
+            }
+            .background(Color(NSColor.controlBackgroundColor), in: RoundedRectangle(cornerRadius: Theme.Radius.card))
+        }
+    }
+
+    // MARK: - Resurfacing Section
+
+    private var resurfacingSection: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+            HStack {
+                Text("RESURFACING")
+                    .font(Theme.Fonts.tiny)
+                    .foregroundStyle(.orange.opacity(0.8))
+                    .tracking(1)
+
+                Text("forgotten but still relevant")
+                    .font(Theme.Fonts.tiny)
+                    .foregroundStyle(.tertiary)
+
+                Spacer()
+            }
+
+            VStack(spacing: 1) {
+                ForEach(resurfacedItems) { node in
+                    HStack(spacing: Theme.Spacing.md) {
+                        Image(systemName: node.type.sfIcon)
+                            .font(.system(size: 13))
+                            .foregroundStyle(Theme.Colors.typeColor(node.type))
+
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(node.title)
+                                .font(Theme.Fonts.body)
+                                .lineLimit(1)
+                            Text("last touched \(node.lastAccessedAt, style: .relative) ago")
+                                .font(Theme.Fonts.tiny)
+                                .foregroundStyle(.tertiary)
+                        }
+
+                        Spacer()
+
+                        Circle()
+                            .fill(Theme.Colors.relevance(node.relevance))
+                            .frame(width: 5, height: 5)
                     }
                     .padding(.horizontal, Theme.Spacing.md)
                     .padding(.vertical, Theme.Spacing.sm)
