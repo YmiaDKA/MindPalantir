@@ -25,9 +25,40 @@ struct TodayView: View {
     private var recentActivity: [MindNode] {
         store.recentNodes(days: 3, limit: 8)
     }
-    
+
     private var taskCount: Int {
         store.activeNodes(ofType: .task).filter { $0.status != .completed }.count
+    }
+
+    /// People connected to active projects — who matters now
+    private var relevantPeople: [MindNode] {
+        guard let project = focusProject else {
+            return store.activeNodes(ofType: .person).prefix(3).map { $0 }
+        }
+        let connected = store.connectedNodes(for: project.id).filter { $0.type == .person }
+        if connected.isEmpty {
+            return store.activeNodes(ofType: .person).prefix(3).map { $0 }
+        }
+        return connected
+    }
+
+    /// Upcoming events (next 7 days)
+    private var upcomingEvents: [MindNode] {
+        let now = Date.now
+        let weekFromNow = now.addingTimeInterval(7 * 86400)
+        return store.nodes(ofType: .event)
+            .filter { node in
+                guard let due = node.dueDate else { return false }
+                return due >= now && due <= weekFromNow
+            }
+            .sorted { ($0.dueDate ?? .now) < ($1.dueDate ?? .now) }
+            .prefix(3)
+            .map { $0 }
+    }
+
+    /// Low-confidence items needing user attention
+    private var needsClarification: [MindNode] {
+        store.uncertainNodes(limit: 3)
     }
 
     var body: some View {
@@ -46,9 +77,24 @@ struct TodayView: View {
                     tasksSection
                 }
 
+                // People: who matters now
+                if !relevantPeople.isEmpty {
+                    peopleSection
+                }
+
+                // Events: upcoming
+                if !upcomingEvents.isEmpty {
+                    eventsSection
+                }
+
                 // Recent: timeline strip
                 if !recentActivity.isEmpty {
                     recentSection
+                }
+
+                // Needs clarification
+                if !needsClarification.isEmpty {
+                    clarificationSection
                 }
             }
             .padding(.horizontal, Theme.Spacing.lg)
@@ -123,15 +169,127 @@ struct TodayView: View {
         }
     }
     
+    // MARK: - People Section
+
+    private var peopleSection: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+            Text("PEOPLE")
+                .font(Theme.Fonts.tiny)
+                .foregroundStyle(.tertiary)
+                .tracking(1)
+
+            HStack(spacing: Theme.Spacing.md) {
+                ForEach(relevantPeople.prefix(4)) { person in
+                    VStack(spacing: 4) {
+                        Image(systemName: "person.circle.fill")
+                            .font(.system(size: 24))
+                            .foregroundStyle(.purple.opacity(0.6))
+                        Text(person.title)
+                            .font(Theme.Fonts.caption)
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, Theme.Spacing.sm)
+                    .background(Color(NSColor.controlBackgroundColor).opacity(0.5), in: RoundedRectangle(cornerRadius: Theme.Radius.chip))
+                    .contentShape(Rectangle())
+                    .onTapGesture { selectedNode = person }
+                }
+            }
+        }
+    }
+
+    // MARK: - Events Section
+
+    private var eventsSection: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+            Text("UPCOMING")
+                .font(Theme.Fonts.tiny)
+                .foregroundStyle(.tertiary)
+                .tracking(1)
+
+            VStack(spacing: 1) {
+                ForEach(upcomingEvents) { event in
+                    HStack(spacing: Theme.Spacing.md) {
+                        Image(systemName: "calendar")
+                            .font(.system(size: 14))
+                            .foregroundStyle(.red.opacity(0.7))
+
+                        Text(event.title)
+                            .font(Theme.Fonts.body)
+                            .lineLimit(1)
+
+                        Spacer()
+
+                        if let due = event.dueDate {
+                            Text(due, style: .relative)
+                                .font(Theme.Fonts.caption)
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                    .padding(.horizontal, Theme.Spacing.md)
+                    .padding(.vertical, Theme.Spacing.sm)
+                    .contentShape(Rectangle())
+                    .onTapGesture { selectedNode = event }
+                }
+            }
+            .background(Color(NSColor.controlBackgroundColor), in: RoundedRectangle(cornerRadius: Theme.Radius.card))
+        }
+    }
+
+    // MARK: - Clarification Section
+
+    private var clarificationSection: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+            HStack {
+                Text("NEEDS ATTENTION")
+                    .font(Theme.Fonts.tiny)
+                    .foregroundStyle(.orange)
+                    .tracking(1)
+
+                Text("\(needsClarification.count)")
+                    .font(Theme.Fonts.tiny)
+                    .foregroundStyle(.orange)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(.orange.opacity(0.15), in: Capsule())
+
+                Spacer()
+            }
+
+            VStack(spacing: 1) {
+                ForEach(needsClarification) { node in
+                    HStack(spacing: Theme.Spacing.md) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(.system(size: 13))
+                            .foregroundStyle(.orange)
+
+                        Text(node.title)
+                            .font(Theme.Fonts.body)
+                            .lineLimit(1)
+
+                        Spacer()
+
+                        ConfidenceBadge(value: node.confidence)
+                    }
+                    .padding(.horizontal, Theme.Spacing.md)
+                    .padding(.vertical, Theme.Spacing.sm)
+                    .contentShape(Rectangle())
+                    .onTapGesture { selectedNode = node }
+                }
+            }
+            .background(Color(NSColor.controlBackgroundColor), in: RoundedRectangle(cornerRadius: Theme.Radius.card))
+        }
+    }
+
     // MARK: - Recent Section
-    
+
     private var recentSection: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
             Text("RECENT")
                 .font(Theme.Fonts.tiny)
                 .foregroundStyle(.tertiary)
                 .tracking(1)
-            
+
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: Theme.Spacing.sm) {
                     ForEach(recentActivity) { node in
