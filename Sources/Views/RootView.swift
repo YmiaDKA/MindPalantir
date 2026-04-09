@@ -117,35 +117,71 @@ struct RootView: View {
 
     // MARK: - Sidebar
 
+    /// Count badge for sidebar items
+    private func screenCount(_ screen: Screen) -> Int {
+        switch screen {
+        case .today: return store.todayNodes().count
+        case .chat: return 0
+        case .projects: return store.activeNodes(ofType: .project).count
+        case .notes: return store.nodes(ofType: .note).count
+        case .tasks: return store.nodes(ofType: .task).filter { $0.status != .completed }.count
+        case .timeline: return store.recentNodes(days: 7).count
+        case .people: return store.nodes(ofType: .person).count
+        case .sources: return store.nodes(ofType: .source).count
+        }
+    }
+
     private var sidebar: some View {
         List(selection: $selectedScreen) {
             ForEach(groupedScreens, id: \.0) { groupName, screens in
                 Section(groupName) {
                     ForEach(screens) { screen in
                         Label {
-                            Text(screen.rawValue)
+                            HStack(spacing: Theme.Spacing.xs) {
+                                Text(screen.rawValue)
+                                Spacer()
+                                let count = screenCount(screen)
+                                if count > 0 {
+                                    Text("\(count)")
+                                        .font(Theme.Fonts.caption)
+                                        .foregroundStyle(.tertiary)
+                                }
+                            }
                         } icon: {
                             Image(systemName: screen.icon)
+                                .foregroundStyle(selectedScreen == screen ? Theme.Colors.accent : .secondary)
                         }
                         .tag(screen)
                         .keyboardShortcut(screen.keyEquivalent ?? "0", modifiers: .command)
                     }
                 }
             }
-            
+
             // Active projects inline
             let projects = store.activeNodes(ofType: .project)
                 .sorted { ($0.pinned ? 1 : 0) + $0.relevance > ($1.pinned ? 1 : 0) + $1.relevance }
                 .prefix(5)
-            
+
             if !projects.isEmpty {
                 Section("Projects") {
                     ForEach(Array(projects)) { project in
+                        let tasks = store.children(of: project.id, linkType: .belongsTo).filter { $0.type == .task }
+                        let openTasks = tasks.filter { $0.status != .completed }.count
+
                         Label {
-                            Text(project.title)
-                                .lineLimit(1)
+                            HStack(spacing: Theme.Spacing.xs) {
+                                Text(project.title)
+                                    .lineLimit(1)
+                                Spacer()
+                                if openTasks > 0 {
+                                    Text("\(openTasks)")
+                                        .font(Theme.Fonts.caption)
+                                        .foregroundStyle(.tertiary)
+                                }
+                            }
                         } icon: {
                             Image(systemName: project.pinned ? "folder.fill" : "folder")
+                                .foregroundStyle(Theme.Colors.typeColor(.project))
                         }
                         .tag(Screen.projects)
                         .onTapGesture {
