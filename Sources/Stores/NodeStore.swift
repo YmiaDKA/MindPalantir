@@ -185,6 +185,31 @@ final class NodeStore {
 
         nodes[node.id] = node
         changeCount += 1
+
+        // Auto-link: if new node mentions existing nodes, create relatedTo links
+        autoLinkMentions(node)
+    }
+
+    /// Check if a new node mentions existing nodes by name and auto-create links.
+    /// Bridges the gap between "manually linked" and "Hermes classified."
+    private func autoLinkMentions(_ node: MindNode) {
+        let text = (node.title + " " + node.body).lowercased()
+        guard text.count > 10 else { return } // skip very short nodes
+
+        for (_, existing) in nodes {
+            guard existing.id != node.id else { continue }
+            // Only check nodes with meaningful titles (>3 chars)
+            let name = existing.title.lowercased()
+            guard name.count > 3 else { continue }
+
+            if text.contains(name) {
+                // Don't link to self, don't double-link
+                if !linkExists(sourceID: node.id, targetID: existing.id, type: .relatedTo) {
+                    let link = MindLink(sourceID: node.id, targetID: existing.id, linkType: .relatedTo)
+                    try? insertLink(link)
+                }
+            }
+        }
     }
 
     func deleteNode(id: UUID) throws {

@@ -12,6 +12,7 @@ struct InspectorPanel: View {
     @State private var pinned: Bool
     @State private var status: NodeStatus
     @State private var showSaveConfirmation = false
+    @State private var saveTimer: Timer?
 
     init(node: MindNode) {
         self.node = node
@@ -48,13 +49,31 @@ struct InspectorPanel: View {
                 Divider()
                 deleteButton
 
-                // Save
-                saveButton
+                // Auto-save indicator
+                if showSaveConfirmation {
+                    HStack(spacing: 4) {
+                        Spacer()
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(Theme.Fonts.caption)
+                            .foregroundStyle(.green)
+                        Text("Saved")
+                            .font(Theme.Fonts.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                    }
+                    .transition(.opacity)
+                }
             }
             .padding(Theme.Spacing.lg)
         }
         .frame(minWidth: 280, idealWidth: 300)
         .background(Color(NSColor.controlBackgroundColor).opacity(0.3))
+        .onChange(of: title) { _, _ in debouncedSave() }
+        .onChange(of: nodeBody) { _, _ in debouncedSave() }
+        .onChange(of: relevance) { _, _ in debouncedSave() }
+        .onChange(of: confidence) { _, _ in debouncedSave() }
+        .onChange(of: pinned) { _, _ in debouncedSave() }
+        .onChange(of: status) { _, _ in debouncedSave() }
     }
     
     // MARK: - Header
@@ -243,27 +262,15 @@ struct InspectorPanel: View {
         .buttonStyle(.plain)
     }
 
-    // MARK: - Save
+    // MARK: - Auto-Save
 
-    private var saveButton: some View {
-        Button { save() } label: {
-            HStack {
-                Spacer()
-                if showSaveConfirmation {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                    Text("Saved")
-                } else {
-                    Text("Save Changes")
-                }
-                Spacer()
+    private func debouncedSave() {
+        saveTimer?.invalidate()
+        saveTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { _ in
+            Task { @MainActor in
+                save()
             }
-            .font(Theme.Fonts.body)
-            .padding(.vertical, 8)
-            .background(Theme.Colors.accent.opacity(0.1), in: RoundedRectangle(cornerRadius: Theme.Radius.button))
-            .foregroundStyle(.primary)
         }
-        .buttonStyle(.plain)
     }
 
     private func save() {

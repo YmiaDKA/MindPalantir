@@ -57,12 +57,14 @@ final class WatcherService {
 
         var imported = 0
         for file in newFiles.prefix(5) {
+            let nodeType = classifyFileType(file)
+            let body = readPreview(path: file.path, maxChars: 500)
             let node = MindNode(
-                type: .source,
+                type: nodeType,
                 title: file.name,
-                body: "New file: \(file.path)",
+                body: body.isEmpty ? "New file: \(file.path)" : body,
                 relevance: 0.7,
-                confidence: 0.7,
+                confidence: nodeType == .source ? 0.9 : 0.7,
                 sourceOrigin: "file_watcher",
                 metadata: ["path": file.path, "ext": file.ext]
             )
@@ -74,6 +76,46 @@ final class WatcherService {
         if imported > 0 {
             print("👁️ Auto-imported \(imported) new files")
         }
+    }
+
+    /// Read a preview of text file contents.
+    private func readPreview(path: String, maxChars: Int) -> String {
+        let textExts: Set<String> = ["md", "txt", "org", "tex", "rst", "json", "yaml", "yml", "toml", "csv", "swift", "py", "js", "ts", "html", "css", "sh"]
+        let ext = (path as NSString).pathExtension.lowercased()
+        guard textExts.contains(ext) else { return "" }
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+              let content = String(data: data, encoding: .utf8)
+        else { return "" }
+        return String(content.prefix(maxChars))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Classify file into a node type based on extension and name patterns.
+    private func classifyFileType(_ file: FileIngestor.FileInfo) -> NodeType {
+        let name = file.name.lowercased()
+
+        // Task files
+        if name.contains("todo") || name.contains("task") || name.contains("backlog") {
+            return .task
+        }
+
+        // Notes — markdown, text, org
+        if ["md", "txt", "org", "tex", "rst"].contains(file.ext) {
+            return .note
+        }
+
+        // Person — vcard
+        if file.ext == "vcf" {
+            return .person
+        }
+
+        // Event — calendar files
+        if ["ics", "ical"].contains(file.ext) {
+            return .event
+        }
+
+        // Everything else → source
+        return .source
     }
 
     /// Auto-link a newly imported node to any project whose title it mentions.
