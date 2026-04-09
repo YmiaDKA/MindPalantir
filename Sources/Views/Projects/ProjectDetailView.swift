@@ -48,6 +48,24 @@ struct ProjectDetailView: View {
             .map { $0 }
     }
 
+    /// Auto-discovered: nodes that mention the project title but aren't linked yet.
+    /// This is the "living workspace" — the project finds related content on its own.
+    private var discoveredNodes: [MindNode] {
+        let linkedIDs = Set(allConnected.map(\.id) + [project.id])
+        let terms = project.title.lowercased().split(separator: " ").filter { $0.count > 2 }
+        guard !terms.isEmpty else { return [] }
+
+        return store.nodes.values
+            .filter { node in
+                guard !linkedIDs.contains(node.id) else { return false }
+                let text = (node.title + " " + node.body).lowercased()
+                return terms.contains { text.contains($0) }
+            }
+            .sorted { $0.relevance > $1.relevance }
+            .prefix(5)
+            .map { $0 }
+    }
+
     // MARK: - Body
 
     var body: some View {
@@ -81,6 +99,11 @@ struct ProjectDetailView: View {
                     // Sources card
                     if !sources.isEmpty {
                         sourcesCard
+                    }
+
+                    // Auto-discovered card — content that mentions this project
+                    if !discoveredNodes.isEmpty {
+                        discoveredCard
                     }
 
                     // Quick add card
@@ -380,6 +403,46 @@ struct ProjectDetailView: View {
         }
     }
 
+    // MARK: - Discovered Card (auto-related content)
+
+    private var discoveredCard: some View {
+        DashboardCard(title: "Related", icon: "sparkles", count: discoveredNodes.count) {
+            VStack(spacing: Theme.Spacing.xs) {
+                Text("Mentions \"\(project.title)\" but not yet linked")
+                    .font(Theme.Fonts.caption)
+                    .foregroundStyle(.tertiary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                ForEach(discoveredNodes) { node in
+                    HStack(spacing: Theme.Spacing.sm) {
+                        Image(systemName: node.type.sfIcon)
+                            .font(.system(size: 12))
+                            .foregroundStyle(Theme.Colors.typeColor(node.type))
+                            .frame(width: 16)
+
+                        Text(node.title)
+                            .font(Theme.Fonts.body)
+                            .lineLimit(1)
+
+                        Spacer()
+
+                        // One-click link button
+                        Button { linkNode(node) } label: {
+                            Image(systemName: "link.badge.plus")
+                                .font(.system(size: 11))
+                                .foregroundStyle(Theme.Colors.accent)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Link to project")
+                    }
+                    .padding(.vertical, 3)
+                    .contentShape(Rectangle())
+                    .onTapGesture { selectedNode = node }
+                }
+            }
+        }
+    }
+
     // MARK: - Quick Add Card
 
     private var quickAddCard: some View {
@@ -414,6 +477,16 @@ struct ProjectDetailView: View {
         updated.status = node.status == .completed ? .active : .completed
         updated.updatedAt = .now
         try? store.insertNode(updated)
+    }
+
+    /// Link an existing node to this project (from discovered/related)
+    private func linkNode(_ node: MindNode) {
+        let link = MindLink(
+            sourceID: project.id,
+            targetID: node.id,
+            linkType: .relatedTo
+        )
+        try? store.insertLink(link)
     }
 
     private func addLinkedNode(type: NodeType) {
