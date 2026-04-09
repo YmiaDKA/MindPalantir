@@ -65,13 +65,18 @@ struct ProjectDetailView: View {
         .navigationTitle(project.title)
     }
 
+    private var completedTasks: [MindNode] {
+        tasks.filter { $0.status == .completed }
+    }
+
     private var projectHeader: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
+            // Title row
             HStack {
                 Image(systemName: project.type.sfIcon).font(.largeTitle)
-                VStack(alignment: .leading) {
+                VStack(alignment: .leading, spacing: 4) {
                     Text(project.title).font(.title.bold())
-                    HStack {
+                    HStack(spacing: 8) {
                         ConfidenceBadge(value: project.confidence)
                         Text(project.status.rawValue.capitalized)
                             .font(.caption)
@@ -81,15 +86,43 @@ struct ProjectDetailView: View {
                     }
                 }
                 Spacer()
-                RelevanceBar(value: project.relevance).frame(width: 60, height: 6)
             }
 
+            // Description
             if !project.body.isEmpty {
                 Text(project.body).font(.body).foregroundStyle(.secondary)
             }
 
+            // Progress bar
+            if !tasks.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("\(completedTasks.count)/\(tasks.count) tasks")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Text("\(Int(Double(completedTasks.count) / Double(tasks.count) * 100))%")
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
+                    }
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(.quaternary)
+                            Capsule()
+                                .fill(completedTasks.count == tasks.count ? .green : .purple.opacity(0.6))
+                                .frame(width: geo.size.width * (tasks.isEmpty ? 0 : Double(completedTasks.count) / Double(tasks.count)))
+                        }
+                    }
+                    .frame(height: 6)
+                }
+            }
+
+            // Stats row
             HStack {
-                Text("\(allConnected.count) linked items")
+                Label("\(allConnected.count)", systemImage: "link")
+                    .font(.caption).foregroundStyle(.secondary)
+                Text("·").foregroundStyle(.tertiary)
+                Label("\(store.linksFor(nodeID: project.id).count)", systemImage: "arrow.triangle.branch")
                     .font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Text("Updated \(project.updatedAt, style: .relative)")
@@ -112,15 +145,23 @@ struct ProjectDetailView: View {
                 HStack {
                     Image(systemName: node.type.sfIcon)
                     VStack(alignment: .leading) {
-                        Text(node.title).font(.subheadline).lineLimit(1)
+                        Text(node.title)
+                            .font(.subheadline)
+                            .lineLimit(1)
+                            .strikethrough(node.type == .task && node.status == .completed)
                         if !node.body.isEmpty {
                             Text(node.body).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                         }
                     }
                     Spacer()
                     if node.type == .task {
-                        Image(systemName: node.status == .completed ? "checkmark.circle.fill" : "circle")
-                            .foregroundStyle(node.status == .completed ? .green : .secondary)
+                        Button {
+                            toggleTask(node)
+                        } label: {
+                            Image(systemName: node.status == .completed ? "checkmark.circle.fill" : "circle")
+                                .foregroundStyle(node.status == .completed ? .green : .secondary)
+                        }
+                        .buttonStyle(.plain)
                     }
                     ConfidenceBadge(value: node.confidence)
                 }
@@ -149,6 +190,13 @@ struct ProjectDetailView: View {
         }
         .padding()
         .background(.regularMaterial.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func toggleTask(_ node: MindNode) {
+        var updated = node
+        updated.status = node.status == .completed ? .active : .completed
+        updated.updatedAt = .now
+        try? store.insertNode(updated)
     }
 
     private func addLinkedNode(type: NodeType) {
