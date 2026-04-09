@@ -377,8 +377,37 @@ struct InspectorPanel: View {
                 if let project = parentProject {
                     metaRow(icon: "folder", text: project.title)
                 }
+
+                // Open URL button for source nodes
+                if node.type == .source, let urlString = extractURL(from: node) {
+                    Button {
+                        if let url = URL(string: urlString) {
+                            NSWorkspace.shared.open(url)
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "arrow.up.right.square")
+                                .font(Theme.Fonts.caption)
+                                .foregroundStyle(Theme.Colors.accent)
+                                .frame(width: 12)
+                            Text("Open URL")
+                                .font(Theme.Fonts.caption)
+                                .foregroundStyle(Theme.Colors.accent)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
             }
         }
+    }
+
+    private func extractURL(from node: MindNode) -> String? {
+        let text = node.title + " " + node.body
+        if text.contains("http://") || text.contains("https://") {
+            let components = text.components(separatedBy: .whitespacesAndNewlines)
+            return components.first { $0.hasPrefix("http://") || $0.hasPrefix("https://") }
+        }
+        return nil
     }
     
     private var parentProject: MindNode? {

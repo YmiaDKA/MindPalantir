@@ -80,6 +80,12 @@ struct QuickAddBar: View {
         if trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") || trimmed.hasPrefix("www.") {
             return .source
         }
+        // Domain pattern → source
+        if trimmed.contains(".com") || trimmed.contains(".org") || trimmed.contains(".io") || trimmed.contains(".dev") {
+            if trimmed.contains(" ") == false && trimmed.count > 5 {
+                return .source
+            }
+        }
         
         // @name → person
         if trimmed.hasPrefix("@") {
