@@ -8,6 +8,7 @@ struct RootView: View {
     @State private var selectedNode: MindNode?
     @State private var showInspector = false
     @State private var searchText = ""
+    @State private var navigateToProject: MindNode?
     
     /// Global search results across all nodes — uses FTS5
     private var searchResults: [MindNode] {
@@ -94,6 +95,9 @@ struct RootView: View {
         .onChange(of: selectedNode) { _, newNode in
             showInspector = newNode != nil
         }
+        .onChange(of: selectedScreen) { _, _ in
+            navigateToProject = nil
+        }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
                 Button { selectedScreen = .today } label: {
@@ -144,9 +148,9 @@ struct RootView: View {
                             Image(systemName: project.pinned ? "folder.fill" : "folder")
                         }
                         .tag(Screen.projects)
-                        .onTapGesture(count: 2) {
-                            selectedNode = project
-                            showInspector = true
+                        .onTapGesture {
+                            selectedScreen = .projects
+                            withAnimation { navigateToProject = project }
                         }
                     }
                 }
@@ -160,15 +164,44 @@ struct RootView: View {
 
     @ViewBuilder
     private var detailView: some View {
-        switch selectedScreen {
-        case .today: TodayView(selectedNode: $selectedNode)
-        case .chat: ChatView(selectedNode: $selectedNode)
-        case .projects: ProjectListView(selectedNode: $selectedNode)
-        case .notes: NodeListView(type: .note, selectedNode: $selectedNode)
-        case .tasks: NodeListView(type: .task, selectedNode: $selectedNode)
-        case .timeline: TimelineView(selectedNode: $selectedNode)
-        case .people: NodeListView(type: .person, selectedNode: $selectedNode)
-        case .sources: NodeListView(type: .source, selectedNode: $selectedNode)
+        if let project = navigateToProject {
+            VStack(alignment: .leading, spacing: 0) {
+                // Back navigation
+                HStack(spacing: Theme.Spacing.sm) {
+                    Button {
+                        withAnimation { navigateToProject = nil }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "chevron.left")
+                            Text("Back")
+                        }
+                        .font(Theme.Fonts.caption)
+                        .foregroundStyle(Theme.Colors.accent)
+                    }
+                    .buttonStyle(.plain)
+                    Spacer()
+                }
+                .padding(.horizontal, Theme.Spacing.lg)
+                .padding(.vertical, Theme.Spacing.sm)
+
+                Divider()
+
+                ProjectDetailView(project: project, selectedNode: $selectedNode)
+            }
+            .id(project.id)
+        } else {
+            switch selectedScreen {
+            case .today: TodayView(selectedNode: $selectedNode, onOpenProject: { project in
+                withAnimation { navigateToProject = project }
+            })
+            case .chat: ChatView(selectedNode: $selectedNode)
+            case .projects: ProjectListView(selectedNode: $selectedNode)
+            case .notes: NodeListView(type: .note, selectedNode: $selectedNode)
+            case .tasks: NodeListView(type: .task, selectedNode: $selectedNode)
+            case .timeline: TimelineView(selectedNode: $selectedNode)
+            case .people: NodeListView(type: .person, selectedNode: $selectedNode)
+            case .sources: NodeListView(type: .source, selectedNode: $selectedNode)
+            }
         }
     }
     

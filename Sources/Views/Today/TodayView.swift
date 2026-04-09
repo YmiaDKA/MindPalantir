@@ -5,6 +5,7 @@ import SwiftUI
 struct TodayView: View {
     @Environment(NodeStore.self) private var store
     @Binding var selectedNode: MindNode?
+    var onOpenProject: ((MindNode) -> Void)? = nil
     
     // What matters right now
     private var focusProject: MindNode? {
@@ -136,7 +137,7 @@ struct TodayView: View {
                 .tracking(1)
             
             // Hero card
-            FocusCard(project: project, store: store, selectedNode: $selectedNode)
+            FocusCard(project: project, store: store, selectedNode: $selectedNode, onOpenProject: onOpenProject)
         }
     }
     
@@ -307,6 +308,7 @@ struct FocusCard: View {
     let project: MindNode
     let store: NodeStore
     @Binding var selectedNode: MindNode?
+    var onOpenProject: ((MindNode) -> Void)? = nil
     
     private var tasks: [MindNode] {
         store.children(of: project.id, linkType: .belongsTo).filter { $0.type == .task }
@@ -394,7 +396,13 @@ struct FocusCard: View {
                 .strokeBorder(Theme.Colors.accent.opacity(0.15), lineWidth: 1)
         )
         .contentShape(Rectangle())
-        .onTapGesture { selectedNode = project }
+        .onTapGesture {
+            if let onOpenProject {
+                onOpenProject(project)
+            } else {
+                selectedNode = project
+            }
+        }
     }
 }
 
