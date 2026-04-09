@@ -172,68 +172,220 @@ struct NodeListRow: View {
 struct ProjectListView: View {
     @Environment(NodeStore.self) private var store
     @Binding var selectedNode: MindNode?
+    var onOpenProject: ((MindNode) -> Void)?
+    @State private var viewMode: ViewMode = .cards
+
+    enum ViewMode: String, CaseIterable {
+        case cards = "Cards"
+        case list = "List"
+    }
+
+    private var sortedProjects: [MindNode] {
+        store.activeNodes(ofType: .project)
+            .sorted { ($0.pinned ? 1 : 0) + $0.relevance > ($1.pinned ? 1 : 0) + $1.relevance }
+    }
 
     var body: some View {
-        NavigationStack {
-            List {
-                ForEach(store.activeNodes(ofType: .project)) { node in
-                    let connections = store.connectedNodes(for: node.id).count
-                    let tasks = store.children(of: node.id, linkType: .belongsTo).filter { $0.type == .task }
-                    let completedTasks = tasks.filter { $0.status == .completed }.count
+        VStack(alignment: .leading, spacing: 0) {
+            // Header with view toggle
+            HStack {
+                Text("Projects")
+                    .font(Theme.Fonts.sectionTitle)
+                Spacer()
+                Text("\(sortedProjects.count) active")
+                    .font(Theme.Fonts.caption)
+                    .foregroundStyle(.tertiary)
+                Picker("View", selection: $viewMode) {
+                    ForEach(ViewMode.allCases, id: \.self) { mode in
+                        Text(mode.rawValue).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 120)
+            }
+            .padding(.horizontal, Theme.Spacing.lg)
+            .padding(.vertical, Theme.Spacing.md)
 
-                    NavigationLink(value: node.id) {
-                        HStack(spacing: Theme.Spacing.md) {
-                            Image(systemName: "folder.fill")
-                                .foregroundStyle(Theme.Colors.typeColor(.project))
-                                .font(.system(size: 20))
+            Divider()
 
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(node.title)
-                                    .font(Theme.Fonts.headline)
+            if viewMode == .cards {
+                projectCards
+            } else {
+                projectList
+            }
+        }
+    }
 
-                                HStack(spacing: Theme.Spacing.sm) {
-                                    if !tasks.isEmpty {
-                                        HStack(spacing: 4) {
-                                            ProgressView(value: Double(completedTasks), total: Double(tasks.count))
-                                                .frame(width: 40)
-                                                .controlSize(.mini)
-                                            Text("\(completedTasks)/\(tasks.count)")
-                                                .font(Theme.Fonts.caption)
-                                                .foregroundStyle(.secondary)
-                                        }
-                                    }
+    // MARK: - Card Grid
 
-                                    Text("\(connections) items")
+    private var projectCards: some View {
+        ScrollView {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 280), spacing: Theme.Spacing.md)], spacing: Theme.Spacing.md) {
+                ForEach(sortedProjects) { project in
+                    ProjectCard(project: project, store: store) {
+                        if let onOpenProject {
+                            onOpenProject(project)
+                        }
+                        selectedNode = project
+                    }
+                }
+            }
+            .padding(Theme.Spacing.lg)
+        }
+    }
+
+    // MARK: - List View
+
+    private var projectList: some View {
+        List {
+            ForEach(sortedProjects) { node in
+                let connections = store.connectedNodes(for: node.id).count
+                let tasks = store.children(of: node.id, linkType: .belongsTo).filter { $0.type == .task }
+                let completedTasks = tasks.filter { $0.status == .completed }.count
+
+                HStack(spacing: Theme.Spacing.md) {
+                    Image(systemName: node.pinned ? "folder.fill" : "folder")
+                        .foregroundStyle(Theme.Colors.typeColor(.project))
+                        .font(.system(size: 20))
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(node.title)
+                            .font(Theme.Fonts.headline)
+
+                        HStack(spacing: Theme.Spacing.sm) {
+                            if !tasks.isEmpty {
+                                HStack(spacing: 4) {
+                                    ProgressView(value: Double(completedTasks), total: Double(tasks.count))
+                                        .frame(width: 40)
+                                        .controlSize(.mini)
+                                    Text("\(completedTasks)/\(tasks.count)")
                                         .font(Theme.Fonts.caption)
                                         .foregroundStyle(.secondary)
                                 }
                             }
-
-                            Spacer()
-
-                            VStack(alignment: .trailing, spacing: 4) {
-                                ConfidenceBadge(value: node.confidence)
-                                RelevanceBar(value: node.relevance).frame(width: 40, height: 3)
-                            }
+                            Text("\(connections) items")
+                                .font(Theme.Fonts.caption)
+                                .foregroundStyle(.secondary)
                         }
                     }
-                    .contentShape(Rectangle())
-                    .onTapGesture { selectedNode = node }
-                }
-                .onDelete { offsets in
-                    let projects = store.activeNodes(ofType: .project)
-                    for index in offsets {
-                        try? store.deleteNode(id: projects[index].id)
+
+                    Spacer()
+
+                    VStack(alignment: .trailing, spacing: 4) {
+                        ConfidenceBadge(value: node.confidence)
+                        RelevanceBar(value: node.relevance).frame(width: 40, height: 3)
                     }
                 }
+                .contentShape(Rectangle())
+                .onTapGesture { selectedNode = node }
             }
-            .listStyle(.plain)
-            .navigationTitle("Projects")
-            .navigationDestination(for: UUID.self) { id in
-                if let project = store.nodes[id] {
-                    ProjectDetailView(project: project, selectedNode: $selectedNode)
+            .onDelete { offsets in
+                for index in offsets {
+                    try? store.deleteNode(id: sortedProjects[index].id)
                 }
             }
         }
+        .listStyle(.plain)
+    }
+}
+
+// MARK: - Project Card
+
+struct ProjectCard: View {
+    let project: MindNode
+    let store: NodeStore
+    let onTap: () -> Void
+
+    private var tasks: [MindNode] {
+        store.children(of: project.id, linkType: .belongsTo).filter { $0.type == .task }
+    }
+    private var openTasks: Int { tasks.filter { $0.status != .completed }.count }
+    private var completedTasks: Int { tasks.filter { $0.status == .completed }.count }
+    private var notes: Int { store.children(of: project.id, linkType: .belongsTo).filter { $0.type == .note }.count }
+    private var connections: Int { store.connectedNodes(for: project.id).count }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+            // Header
+            HStack(spacing: Theme.Spacing.sm) {
+                Image(systemName: project.pinned ? "folder.fill" : "folder")
+                    .foregroundStyle(Theme.Colors.typeColor(.project))
+                Text(project.title)
+                    .font(Theme.Fonts.headline)
+                    .lineLimit(1)
+                Spacer()
+                if project.pinned {
+                    Image(systemName: "pin.fill")
+                        .font(.caption2)
+                        .foregroundStyle(Theme.Colors.accent)
+                }
+                RelevanceDot(value: project.relevance)
+            }
+
+            // Body preview
+            if !project.body.isEmpty {
+                Text(project.body)
+                    .font(Theme.Fonts.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+
+            // Progress bar
+            if !tasks.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    ProgressView(value: Double(completedTasks), total: Double(tasks.count))
+                        .tint(Theme.Colors.accent)
+                    HStack {
+                        Text("\(completedTasks)/\(tasks.count) tasks")
+                            .font(Theme.Fonts.tiny)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        if openTasks > 0 {
+                            Text("\(openTasks) open")
+                                .font(Theme.Fonts.tiny)
+                                .foregroundStyle(.orange)
+                        }
+                    }
+                }
+            }
+
+            // Stats row
+            HStack(spacing: Theme.Spacing.md) {
+                if notes > 0 {
+                    Label("\(notes)", systemImage: "doc.text")
+                        .font(Theme.Fonts.tiny)
+                        .foregroundStyle(.secondary)
+                }
+                Label("\(connections)", systemImage: "link")
+                    .font(Theme.Fonts.tiny)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text(project.updatedAt, style: .relative)
+                    .font(Theme.Fonts.tiny)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .padding(Theme.Spacing.md)
+        .background(
+            RoundedRectangle(cornerRadius: Theme.Radius.card)
+                .fill(Color(NSColor.controlBackgroundColor))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.Radius.card)
+                .strokeBorder(project.pinned ? Theme.Colors.accent.opacity(0.3) : Color.clear, lineWidth: 1)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.card))
+        .onTapGesture(perform: onTap)
+    }
+}
+
+// MARK: - Relevance Dot
+
+struct RelevanceDot: View {
+    let value: Double
+    var body: some View {
+        Circle()
+            .fill(Theme.Colors.relevance(value))
+            .frame(width: 6, height: 6)
     }
 }

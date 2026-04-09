@@ -258,7 +258,9 @@ struct RootView: View {
                 withAnimation { navigateToProject = project }
             })
             case .chat: ChatView(selectedNode: $selectedNode, focusedProject: navigateToProject)
-            case .projects: ProjectListView(selectedNode: $selectedNode)
+            case .projects: ProjectListView(selectedNode: $selectedNode, onOpenProject: { project in
+                withAnimation { navigateToProject = project }
+            })
             case .notes: NodeListView(type: .note, selectedNode: $selectedNode)
             case .tasks: NodeListView(type: .task, selectedNode: $selectedNode)
             case .timeline: TimelineView(selectedNode: $selectedNode)
