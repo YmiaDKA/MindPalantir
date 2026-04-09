@@ -147,10 +147,10 @@ struct RootView: View {
                 .font(.system(size: 32))
                 .foregroundStyle(.tertiary)
             Text("Select an item")
-                .font(Theme.Font.cardTitle())
+                .font(Theme.Fonts.headline)
                 .foregroundStyle(.secondary)
             Text("Click any card to inspect it")
-                .font(Theme.Font.caption())
+                .font(Theme.Fonts.caption)
                 .foregroundStyle(.tertiary)
             Spacer()
         }

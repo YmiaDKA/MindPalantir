@@ -65,7 +65,7 @@ struct TodayView: View {
         VStack(alignment: .leading, spacing: Theme.Spacing.md) {
             // Section label
             Text("FOCUS")
-                .font(Theme.Font.tiny())
+                .font(Theme.Fonts.tiny)
                 .foregroundStyle(.tertiary)
                 .tracking(1)
             
@@ -80,12 +80,12 @@ struct TodayView: View {
         VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
             HStack {
                 Text("TASKS")
-                    .font(Theme.Font.tiny())
+                    .font(Theme.Fonts.tiny)
                     .foregroundStyle(.tertiary)
                     .tracking(1)
                 
                 Text("\(openTasks.count)")
-                    .font(Theme.Font.tiny())
+                    .font(Theme.Fonts.tiny)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 5)
                     .padding(.vertical, 1)
@@ -108,7 +108,7 @@ struct TodayView: View {
     private var recentSection: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
             Text("RECENT")
-                .font(Theme.Font.tiny())
+                .font(Theme.Fonts.tiny)
                 .foregroundStyle(.tertiary)
                 .tracking(1)
             
@@ -149,7 +149,7 @@ struct FocusCard: View {
                     .foregroundStyle(Theme.Colors.typeColor(.project))
                 
                 Text(project.title)
-                    .font(Theme.Font.largeTitle())
+                    .font(Theme.Fonts.largeTitle)
                     .lineLimit(2)
                 
                 Spacer()
@@ -164,7 +164,7 @@ struct FocusCard: View {
             // Description
             if !project.body.isEmpty {
                 Text(project.body)
-                    .font(Theme.Font.body())
+                    .font(Theme.Fonts.body)
                     .foregroundStyle(.secondary)
                     .lineLimit(3)
             }
@@ -178,14 +178,14 @@ struct FocusCard: View {
                             .frame(width: 60)
                             .tint(Theme.Colors.relevance(project.relevance))
                         Text("\(completedTasks.count)/\(tasks.count)")
-                            .font(Theme.Font.caption())
+                            .font(Theme.Fonts.caption)
                             .foregroundStyle(.secondary)
                     }
                 }
                 
                 // Connections
                 Label("\(connections)", systemImage: "link")
-                    .font(Theme.Font.caption())
+                    .font(Theme.Fonts.caption)
                     .foregroundStyle(.secondary)
                 
                 // Relevance
@@ -201,7 +201,7 @@ struct FocusCard: View {
                 Spacer()
                 
                 Text(project.status.rawValue.capitalized)
-                    .font(Theme.Font.caption())
+                    .font(Theme.Fonts.caption)
                     .foregroundStyle(.tertiary)
             }
         }
@@ -239,7 +239,7 @@ struct TaskRow: View {
             
             // Title
             Text(task.title)
-                .font(Theme.Font.body())
+                .font(Theme.Fonts.body)
                 .lineLimit(1)
                 .strikethrough(task.status == .completed)
             
@@ -248,7 +248,7 @@ struct TaskRow: View {
             // Due date if present
             if let due = task.dueDate {
                 Text(due, style: .relative)
-                    .font(Theme.Font.caption())
+                    .font(Theme.Fonts.caption)
                     .foregroundStyle(due < Date() ? AnyShapeStyle(.red) : AnyShapeStyle(.tertiary))
             }
             
@@ -283,12 +283,12 @@ struct RecentChip: View {
                 Text(node.type.icon)
                     .font(.system(size: 11))
                 Text(node.updatedAt, style: .relative)
-                    .font(Theme.Font.tiny())
+                    .font(Theme.Fonts.tiny)
                     .foregroundStyle(.tertiary)
             }
             
             Text(node.title)
-                .font(Theme.Font.caption())
+                .font(Theme.Fonts.caption)
                 .lineLimit(2)
                 .frame(width: 120, alignment: .leading)
         }

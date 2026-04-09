@@ -256,16 +256,13 @@ struct ChatView: View {
     // MARK: - API Key Management
     
     private func loadAPIKey() {
-        let keychain = UserDefaults.standard
-        if let key = keychain.string(forKey: "openrouter_api_key"), !key.isEmpty {
-            llmClient = LLMClient(apiKey: key)
-        }
+        llmClient = APIKeyStore.makeClient()
     }
     
     private func saveAPIKey() {
         let trimmed = apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        UserDefaults.standard.set(trimmed, forKey: "openrouter_api_key")
+        APIKeyStore.save(trimmed)
         llmClient = LLMClient(apiKey: trimmed)
         apiKeyInput = ""
     }

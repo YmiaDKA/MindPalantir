@@ -1,29 +1,41 @@
 import Foundation
 
 /// LLM client for OpenRouter (OpenAI-compatible API).
-/// Provides the "brain" context to the AI so it can reason about your data.
+/// Free models with fallback chain. The "brain" context is injected as system prompt.
 final class LLMClient: Sendable {
     private let apiKey: String
     private let baseURL = "https://openrouter.ai/api/v1"
+    
+    /// Free model fallback chain — best free models first
+    static let modelChain = [
+        "google/gemma-4-26b-a4b-it:free",      // Gemma 4 — user's preference
+        "google/gemma-3-27b-it:free",           // Gemma 3 27B — strong fallback
+        "meta-llama/llama-3.3-70b-instruct:free", // Llama 3.3 — good quality
+        "nousresearch/hermes-3-llama-3.1-405b:free", // Hermes — good reasoning
+    ]
+    
+    /// Default model
+    static let defaultModel = modelChain[0]
     
     init(apiKey: String) {
         self.apiKey = apiKey
     }
     
-    // MARK: - Chat Completion
+    // MARK: - Chat Completion (non-streaming)
     
-    /// Send a conversation with brain context to the LLM.
-    /// Returns the AI's response text.
-    func chat(messages: [ChatMessage], model: String = "google/gemini-2.0-flash-001") async throws -> String {
+    func chat(messages: [ChatMessage], model: String? = nil) async throws -> String {
+        let modelToUse = model ?? Self.defaultModel
+        
         let url = URL(string: "\(baseURL)/chat/completions")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("MindPalantir/1.0", forHTTPHeaderField: "HTTP-Referer")
+        request.timeoutInterval = 30
         
         let body: [String: Any] = [
-            "model": model,
+            "model": modelToUse,
             "messages": messages.map { ["role": $0.role, "content": $0.content] },
             "max_tokens": 1024,
             "temperature": 0.7,
@@ -40,35 +52,36 @@ final class LLMClient: Sendable {
         if httpResponse.statusCode != 200 {
             let errorText = String(data: data, encoding: .utf8) ?? "unknown"
             NSLog("❌ LLM error \(httpResponse.statusCode): \(errorText)")
+            
+            // If rate limited, try next model in chain
+            if httpResponse.statusCode == 429 {
+                return try await fallbackChat(messages: messages, fromIndex: 0)
+            }
+            
             throw LLMError.apiError(httpResponse.statusCode, errorText)
         }
         
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let choices = json["choices"] as? [[String: Any]],
-              let firstChoice = choices.first,
-              let message = firstChoice["message"] as? [String: Any],
-              let content = message["content"] as? String
-        else {
-            throw LLMError.parseError
-        }
-        
-        return content
+        return try parseResponse(data)
     }
     
-    /// Stream a chat response (for real-time display).
-    func streamChat(messages: [ChatMessage], model: String = "google/gemini-2.0-flash-001") -> AsyncThrowingStream<String, Error> {
-        AsyncThrowingStream { continuation in
+    // MARK: - Streaming Chat
+    
+    func streamChat(messages: [ChatMessage], model: String? = nil) -> AsyncThrowingStream<String, Error> {
+        let modelToUse = model ?? Self.defaultModel
+        
+        return AsyncThrowingStream { continuation in
             Task {
                 do {
-                    let url = URL(string: "\(baseURL)/chat/completions")!
+                    let url = URL(string: "\(self.baseURL)/chat/completions")!
                     var request = URLRequest(url: url)
                     request.httpMethod = "POST"
-                    request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+                    request.setValue("Bearer \(self.apiKey)", forHTTPHeaderField: "Authorization")
                     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
                     request.setValue("MindPalantir/1.0", forHTTPHeaderField: "HTTP-Referer")
+                    request.timeoutInterval = 60
                     
                     let body: [String: Any] = [
-                        "model": model,
+                        "model": modelToUse,
                         "messages": messages.map { ["role": $0.role, "content": $0.content] },
                         "max_tokens": 1024,
                         "temperature": 0.7,
@@ -83,6 +96,15 @@ final class LLMClient: Sendable {
                           httpResponse.statusCode == 200
                     else {
                         let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+                        
+                        // If rate limited, fallback to next model
+                        if statusCode == 429 {
+                            let result = try await self.fallbackChat(messages: messages, fromIndex: 0)
+                            continuation.yield(result)
+                            continuation.finish()
+                            return
+                        }
+                        
                         continuation.finish(throwing: LLMError.apiError(statusCode, "Stream failed"))
                         return
                     }
@@ -108,6 +130,67 @@ final class LLMClient: Sendable {
             }
         }
     }
+    
+    // MARK: - Fallback Chain
+    
+    private func fallbackChat(messages: [ChatMessage], fromIndex: Int) async throws -> String {
+        let nextIndex = fromIndex + 1
+        guard nextIndex < Self.modelChain.count else {
+            throw LLMError.allModelsFailed
+        }
+        
+        let nextModel = Self.modelChain[nextIndex]
+        NSLog("⚠️ Falling back to model: \(nextModel)")
+        
+        let url = URL(string: "\(baseURL)/chat/completions")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("MindPalantir/1.0", forHTTPHeaderField: "HTTP-Referer")
+        request.timeoutInterval = 30
+        
+        let body: [String: Any] = [
+            "model": nextModel,
+            "messages": messages.map { ["role": $0.role, "content": $0.content] },
+            "max_tokens": 1024,
+            "temperature": 0.7,
+        ]
+        
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw LLMError.invalidResponse
+        }
+        
+        if httpResponse.statusCode == 429 {
+            return try await fallbackChat(messages: messages, fromIndex: nextIndex)
+        }
+        
+        guard httpResponse.statusCode == 200 else {
+            let errorText = String(data: data, encoding: .utf8) ?? "unknown"
+            throw LLMError.apiError(httpResponse.statusCode, errorText)
+        }
+        
+        return try parseResponse(data)
+    }
+    
+    // MARK: - Parse Response
+    
+    private func parseResponse(_ data: Data) throws -> String {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let choices = json["choices"] as? [[String: Any]],
+              let firstChoice = choices.first,
+              let message = firstChoice["message"] as? [String: Any],
+              let content = message["content"] as? String
+        else {
+            throw LLMError.parseError
+        }
+        
+        return content
+    }
 }
 
 // MARK: - Types
@@ -122,6 +205,7 @@ enum LLMError: Error, LocalizedError {
     case apiError(Int, String)
     case parseError
     case noAPIKey
+    case allModelsFailed
     
     var errorDescription: String? {
         switch self {
@@ -129,6 +213,30 @@ enum LLMError: Error, LocalizedError {
         case .apiError(let code, let msg): "API error \(code): \(msg)"
         case .parseError: "Failed to parse LLM response"
         case .noAPIKey: "No API key configured"
+        case .allModelsFailed: "All free models are rate-limited. Try again later."
         }
+    }
+}
+
+// MARK: - API Key Storage
+
+enum APIKeyStore {
+    private static let keyKey = "openrouter_api_key"
+    
+    static var isConfigured: Bool {
+        !(storedKey?.isEmpty ?? true)
+    }
+    
+    static var storedKey: String? {
+        UserDefaults.standard.string(forKey: keyKey)
+    }
+    
+    static func save(_ key: String) {
+        UserDefaults.standard.set(key, forKey: keyKey)
+    }
+    
+    static func makeClient() -> LLMClient? {
+        guard let key = storedKey, !key.isEmpty else { return nil }
+        return LLMClient(apiKey: key)
     }
 }
