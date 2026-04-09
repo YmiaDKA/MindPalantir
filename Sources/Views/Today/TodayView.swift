@@ -506,6 +506,18 @@ struct SpatialTaskRow: View {
         .padding(.vertical, Theme.Spacing.sm)
         .contentShape(Rectangle())
         .onTapGesture { selectedNode = task }
+        .draggable(task.id.uuidString) {
+            // Drag preview
+            HStack(spacing: 8) {
+                Image(systemName: task.type.sfIcon)
+                    .foregroundStyle(Theme.Colors.typeColor(.task))
+                Text(task.title)
+                    .font(Theme.Fonts.caption)
+                    .lineLimit(1)
+            }
+            .padding(8)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        }
     }
 
     private var parentProject: MindNode? {
@@ -532,6 +544,7 @@ struct SpatialProjectChip: View {
     let store: NodeStore
     let onTap: () -> Void
     @State private var isHovered = false
+    @State private var isDropTarget = false
 
     private var tasks: [MindNode] {
         store.children(of: project.id, linkType: .belongsTo).filter { $0.type == .task }
@@ -574,6 +587,24 @@ struct SpatialProjectChip: View {
             withAnimation(.easeInOut(duration: 0.15)) { isHovered = hovering }
         }
         .onTapGesture(perform: onTap)
+        .dropDestination(for: String.self) { items, _ in
+            guard let nodeIDString = items.first,
+                  let nodeID = UUID(uuidString: nodeIDString) else { return false }
+            // Create belongsTo link from project to dropped node
+            if !store.linkExists(sourceID: project.id, targetID: nodeID, type: .belongsTo) {
+                let link = MindLink(sourceID: project.id, targetID: nodeID, linkType: .belongsTo)
+                try? store.insertLink(link)
+            }
+            return true
+        } isTargeted: { targeted in
+            withAnimation(.easeInOut(duration: 0.1)) {
+                isDropTarget = targeted
+            }
+        }
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.Radius.chip)
+                .strokeBorder(Theme.Colors.accent.opacity(isDropTarget ? 0.5 : 0), lineWidth: 2)
+        )
     }
 }
 

@@ -34,10 +34,11 @@ struct QuickAddBar: View {
             .menuStyle(.borderlessButton)
             .frame(width: 32)
 
-            // Text field
-            TextField("Quick add...", text: $text)
+            // Text field — multiline support (first line = title, rest = body)
+            TextField("Quick add...", text: $text, axis: .vertical)
                 .textFieldStyle(.plain)
                 .focused($isFocused)
+                .lineLimit(1...4)
                 .onSubmit { addNode() }
                 .onChange(of: text) { _, newText in
                     autoDetectedType = detectType(newText)
@@ -109,27 +110,32 @@ struct QuickAddBar: View {
     private func addNode() {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        
+
+        // Split into title + body (first line = title, rest = body)
+        let lines = trimmed.components(separatedBy: .newlines)
+        var title = lines.first ?? trimmed
+        let body = lines.count > 1 ? lines.dropFirst().joined(separator: "\n").trimmingCharacters(in: .whitespaces) : ""
+
         // Clean up title based on type prefix
-        var title = trimmed
         if selectedType == .task {
-            title = trimmed
+            title = title
                 .replacingOccurrences(of: "todo:", with: "")
                 .replacingOccurrences(of: "task:", with: "")
                 .replacingOccurrences(of: "- [ ]", with: "")
                 .trimmingCharacters(in: .whitespaces)
         } else if selectedType == .person {
-            title = trimmed.hasPrefix("@") ? String(trimmed.dropFirst()) : trimmed
+            title = title.hasPrefix("@") ? String(title.dropFirst()) : title
         } else if selectedType == .project {
-            title = trimmed
+            title = title
                 .replacingOccurrences(of: "project:", with: "")
                 .replacingOccurrences(of: "proj:", with: "")
                 .trimmingCharacters(in: .whitespaces)
         }
-        
+
         let node = MindNode(
             type: selectedType,
             title: title,
+            body: body,
             relevance: 0.7,
             confidence: 0.8,
             sourceOrigin: "quick_add"

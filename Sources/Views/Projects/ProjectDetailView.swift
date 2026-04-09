@@ -11,6 +11,10 @@ struct ProjectDetailView: View {
     @State private var newTaskText = ""
     @State private var newNoteText = ""
     @State private var showConnections = false
+    @State private var editingTitle = ""
+    @State private var isEditingTitle = false
+    @State private var editingBody = ""
+    @State private var isEditingBody = false
 
     // MARK: - Derived Data
 
@@ -186,18 +190,42 @@ struct ProjectDetailView: View {
                         .padding(.top, 2)
 
                     VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
-                        Text(project.title)
-                            .font(.system(size: 26, weight: .bold, design: .default))
-                            .lineLimit(2)
+                        if isEditingTitle {
+                            TextField("Project title", text: $editingTitle, onCommit: saveTitle)
+                                .font(.system(size: 26, weight: .bold, design: .default))
+                                .textFieldStyle(.plain)
+                                .onExitCommand { isEditingTitle = false }
+                        } else {
+                            Text(project.title)
+                                .font(.system(size: 26, weight: .bold, design: .default))
+                                .lineLimit(2)
+                                .onTapGesture(count: 2) {
+                                    editingTitle = project.title
+                                    isEditingTitle = true
+                                }
+                        }
 
                         // Subtitle: status + confidence + last access
                         HStack(spacing: Theme.Spacing.sm) {
-                            Text(project.status.rawValue.capitalized)
-                                .font(Theme.Fonts.caption)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 3)
-                                .background(statusColor.opacity(0.12), in: Capsule())
-                                .foregroundStyle(statusColor)
+                            // Clickable status pill — cycles through statuses
+                            Menu {
+                                ForEach([NodeStatus.active, .completed, .archived, .draft, .waiting], id: \.self) { status in
+                                    Button { setStatus(status) } label: {
+                                        HStack {
+                                            Text(status.rawValue.capitalized)
+                                            if project.status == status { Image(systemName: "checkmark") }
+                                        }
+                                    }
+                                }
+                            } label: {
+                                Text(project.status.rawValue.capitalized)
+                                    .font(Theme.Fonts.caption)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 3)
+                                    .background(statusColor.opacity(0.12), in: Capsule())
+                                    .foregroundStyle(statusColor)
+                            }
+                            .menuStyle(.borderlessButton)
 
                             ConfidenceBadge(value: project.confidence)
 
@@ -943,6 +971,23 @@ struct ProjectDetailView: View {
     }
 
     // MARK: - Actions
+
+    private func saveTitle() {
+        let trimmed = editingTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != project.title else { isEditingTitle = false; return }
+        var updated = project
+        updated.title = trimmed
+        updated.updatedAt = .now
+        try? store.insertNode(updated)
+        isEditingTitle = false
+    }
+
+    private func setStatus(_ status: NodeStatus) {
+        var updated = project
+        updated.status = status
+        updated.updatedAt = .now
+        try? store.insertNode(updated)
+    }
 
     private func toggleTask(_ node: MindNode) {
         var updated = node

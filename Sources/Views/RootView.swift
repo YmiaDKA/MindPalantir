@@ -11,6 +11,7 @@ struct RootView: View {
     @State private var navigateToProject: MindNode?
     @State private var showQuickSwitcher = false
     @State private var showKeyboardHelp = false
+    @State private var showCommandPalette = false
     
     /// Global search results across all nodes — uses FTS5
     private var searchResults: [MindNode] {
@@ -22,6 +23,7 @@ struct RootView: View {
         case today = "Today"
         case chat = "Chat"
         case projects = "Projects"
+        case graph = "Graph"
         case notes = "Notes"
         case tasks = "Tasks"
         case timeline = "Timeline"
@@ -35,6 +37,7 @@ struct RootView: View {
             case .today: "square.grid.2x2"
             case .chat: "brain.head.profile"
             case .projects: "folder"
+            case .graph: "point.3.filled.connected.trianglepath.dotted"
             case .notes: "doc.text"
             case .tasks: "checklist"
             case .timeline: "clock"
@@ -42,34 +45,35 @@ struct RootView: View {
             case .sources: "link"
             }
         }
-        
+
         /// Group for sidebar sections
         var group: String {
             switch self {
-            case .today, .chat: "Home"
+            case .today, .chat, .graph: "Home"
             case .projects, .notes, .tasks: "Organize"
             case .timeline, .people, .sources: "Browse"
             }
         }
 
-        /// Keyboard shortcut — Cmd+1 through Cmd+8
+        /// Keyboard shortcut — Cmd+1 through Cmd+9
         var keyEquivalent: KeyEquivalent? {
             switch self {
             case .today: "1"
             case .chat: "2"
             case .projects: "3"
-            case .notes: "4"
-            case .tasks: "5"
-            case .timeline: "6"
-            case .people: "7"
-            case .sources: "8"
+            case .graph: "4"
+            case .notes: "5"
+            case .tasks: "6"
+            case .timeline: "7"
+            case .people: "8"
+            case .sources: "9"
             }
         }
     }
-    
+
     /// Screens grouped by section
     private var groupedScreens: [(String, [Screen])] {
-        let allScreens: [Screen] = [.today, .chat, .projects, .notes, .tasks, .timeline, .people, .sources]
+        let allScreens: [Screen] = [.today, .chat, .graph, .projects, .notes, .tasks, .timeline, .people, .sources]
         let groups = Dictionary(grouping: allScreens) { $0.group }
         return [("Home", groups["Home"] ?? []),
                 ("Organize", groups["Organize"] ?? []),
@@ -117,6 +121,19 @@ struct RootView: View {
                 }
                 .transition(.opacity.combined(with: .scale(scale: 0.95)))
                 .animation(.spring(response: 0.2, dampingFraction: 0.8), value: showKeyboardHelp)
+            }
+            if showCommandPalette {
+                ZStack {
+                    Color.black.opacity(0.3)
+                        .ignoresSafeArea()
+                        .onTapGesture { showCommandPalette = false }
+                    CommandPalette(
+                        selectedNode: $selectedNode,
+                        isPresented: $showCommandPalette
+                    )
+                }
+                .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                .animation(.spring(response: 0.2, dampingFraction: 0.8), value: showCommandPalette)
             }
         }
         .onChange(of: selectedNode) { _, newNode in
@@ -173,6 +190,14 @@ struct RootView: View {
                     .help("Inspector (⌘I)")
                     .accessibilityLabel("Inspector")
 
+                    Button { showCommandPalette.toggle() } label: {
+                        Image(systemName: "command")
+                    }
+                    .controlSize(.small)
+                    .keyboardShortcut("p", modifiers: [.command, .shift])
+                    .help("Commands (⌘⇧P)")
+                    .accessibilityLabel("Command Palette")
+
                     Button { showKeyboardHelp.toggle() } label: {
                         Image(systemName: "keyboard")
                     }
@@ -195,6 +220,7 @@ struct RootView: View {
         case .today: return store.todayNodes().count
         case .chat: return 0
         case .projects: return store.activeNodes(ofType: .project).count
+        case .graph: return store.nodes.count
         case .notes: return store.nodes(ofType: .note).count
         case .tasks: return store.nodes(ofType: .task).filter { $0.status != .completed }.count
         case .timeline: return store.recentNodes(days: 7).count
@@ -337,6 +363,7 @@ struct RootView: View {
             case .projects: ProjectListView(selectedNode: $selectedNode, onOpenProject: { project in
                 withAnimation { navigateToProject = project }
             })
+            case .graph: GraphView(selectedNode: $selectedNode)
             case .notes: NodeListView(type: .note, selectedNode: $selectedNode)
             case .tasks: NodeListView(type: .task, selectedNode: $selectedNode)
             case .timeline: TimelineView(selectedNode: $selectedNode)
