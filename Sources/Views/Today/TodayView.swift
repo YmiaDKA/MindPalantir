@@ -62,6 +62,15 @@ struct TodayView: View {
         store.uncertainNodes(limit: 3)
     }
 
+    /// Other active projects (excluding the focus project)
+    private var otherProjects: [MindNode] {
+        store.activeNodes(ofType: .project)
+            .filter { $0.id != focusProject?.id }
+            .sorted { $0.relevance > $1.relevance }
+            .prefix(4)
+            .map { $0 }
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Theme.Spacing.xl) {
@@ -71,6 +80,11 @@ struct TodayView: View {
                 // Focus: one project in detail
                 if let project = focusProject {
                     focusSection(project)
+                }
+
+                // Other projects strip
+                if !otherProjects.isEmpty {
+                    otherProjectsSection
                 }
 
                 // Tasks: compact list
@@ -141,6 +155,64 @@ struct TodayView: View {
         }
     }
     
+    // MARK: - Other Projects Strip
+
+    private var otherProjectsSection: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+            Text("PROJECTS")
+                .font(Theme.Fonts.tiny)
+                .foregroundStyle(.tertiary)
+                .tracking(1)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: Theme.Spacing.sm) {
+                    ForEach(otherProjects) { project in
+                        let tasks = store.children(of: project.id, linkType: .belongsTo).filter { $0.type == .task }
+                        let completed = tasks.filter { $0.status == .completed }.count
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "folder.fill")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(Theme.Colors.typeColor(.project))
+                                Text(project.title)
+                                    .font(Theme.Fonts.caption)
+                                    .fontWeight(.medium)
+                                    .lineLimit(1)
+                            }
+
+                            if !tasks.isEmpty {
+                                HStack(spacing: 4) {
+                                    ProgressView(value: Double(completed), total: Double(tasks.count))
+                                        .frame(width: 40)
+                                        .controlSize(.mini)
+                                    Text("\(completed)/\(tasks.count)")
+                                        .font(Theme.Fonts.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            } else {
+                                Text("No tasks")
+                                    .font(Theme.Fonts.caption)
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
+                        .frame(width: 140)
+                        .padding(Theme.Spacing.sm)
+                        .background(Color(NSColor.controlBackgroundColor).opacity(0.6), in: RoundedRectangle(cornerRadius: Theme.Radius.chip))
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            if let onOpenProject {
+                                onOpenProject(project)
+                            } else {
+                                selectedNode = project
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // MARK: - Tasks Section
     
     private var tasksSection: some View {
