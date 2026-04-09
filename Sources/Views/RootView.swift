@@ -191,6 +191,27 @@ struct RootView: View {
                     }
                 }
             }
+
+            // Recent section — quick access to last-touched items
+            let recentItems = store.recentNodes(days: 3, limit: 5)
+            if !recentItems.isEmpty {
+                Section("Recent") {
+                    ForEach(recentItems) { node in
+                        Label {
+                            Text(node.title)
+                                .lineLimit(1)
+                        } icon: {
+                            Image(systemName: node.type.sfIcon)
+                                .foregroundStyle(Theme.Colors.typeColor(node.type))
+                        }
+                        .tag(selectedScreen) // keep current screen selected
+                        .onTapGesture {
+                            selectedNode = node
+                            showInspector = true
+                        }
+                    }
+                }
+            }
         }
         .listStyle(.sidebar)
         .navigationTitle("MindPalantir")
