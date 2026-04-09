@@ -231,10 +231,7 @@ struct TodayView: View {
                     SpatialTaskRow(task: task, selectedNode: $selectedNode)
                 }
             }
-            .background(
-                RoundedRectangle(cornerRadius: Theme.Radius.card)
-                    .fill(Color(NSColor.controlBackgroundColor))
-            )
+            .spatialCard()
         }
     }
 
@@ -322,10 +319,7 @@ struct SidePanel<Content: View>: View {
         }
         .padding(Theme.Spacing.md)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: Theme.Radius.card)
-                .fill(Color(NSColor.controlBackgroundColor).opacity(0.5))
-        )
+        .spatialCard(shadow: Theme.Shadow.card)
     }
 }
 
@@ -404,16 +398,12 @@ struct SpatialFocusCard: View {
         }
         .padding(Theme.Spacing.xl)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: Theme.Radius.card * 1.5)
-                .fill(Color(NSColor.controlBackgroundColor))
-        )
-        .shadow(color: .black.opacity(0.04), radius: 8, y: 2)
+        .spatialCard(shadow: Theme.Shadow.hero, radius: Theme.Radius.cardLarge)
         .overlay(
-            RoundedRectangle(cornerRadius: Theme.Radius.card * 1.5)
+            RoundedRectangle(cornerRadius: Theme.Radius.cardLarge)
                 .strokeBorder(Theme.Colors.accent.opacity(0.1), lineWidth: 1)
         )
-        .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.card * 1.5))
+        .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.cardLarge))
         .onTapGesture {
             if let onOpenProject { onOpenProject(project) }
             else { selectedNode = project }
@@ -525,14 +515,7 @@ struct SpatialProjectChip: View {
         }
         .padding(.horizontal, Theme.Spacing.md)
         .padding(.vertical, Theme.Spacing.sm)
-        .background(
-            RoundedRectangle(cornerRadius: Theme.Radius.chip)
-                .fill(Color(NSColor.controlBackgroundColor).opacity(0.7))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: Theme.Radius.chip)
-                .strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5)
-        )
+        .spatialCard(shadow: Theme.Shadow.card, radius: Theme.Radius.chip)
         .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.chip))
         .onTapGesture(perform: onTap)
     }

@@ -1,62 +1,88 @@
 import SwiftUI
 
-/// Design system — Apple HIG compliant.
-/// Typography creates hierarchy. Color is accent only. Spacing creates structure.
-/// See DESIGN_SPEC.md for full rationale.
+/// Design system — Apple HIG + spatial canvas feel.
+/// Inspired by Muse, Heptabase, Freeform: cards with depth, organic spacing.
 enum Theme {
     
-    // MARK: - Typography (macOS built-in text styles)
-    // Source: Apple HIG Typography — use SF Pro, system weights, no custom fonts
+    // MARK: - Typography
     
     enum Fonts {
-        /// Large Title (26pt, Regular) — hero items, focused project name
-        static let largeTitle = SwiftUI.Font.system(size: 26, weight: .bold, design: .default)
+        /// Hero titles — big, bold, spatial
+        static let largeTitle = SwiftUI.Font.system(size: 28, weight: .bold, design: .default)
         
-        /// Title 2 (17pt, Regular) — section headers within content
+        /// Section headers
         static let sectionTitle = SwiftUI.Font.system(size: 17, weight: .semibold, design: .default)
         
-        /// Headline (13pt, Bold) — card titles, list row titles
+        /// Card titles
         static let headline = SwiftUI.Font.headline
         
-        /// Body (13pt, Regular) — descriptions, content
+        /// Content
         static let body = SwiftUI.Font.body
         
-        /// Caption 1 (10pt, Regular) — metadata, timestamps, badges
+        /// Metadata
         static let caption = SwiftUI.Font.caption
         
-        /// Tiny (10pt, Medium) — uppercase section labels, tracking
+        /// Tiny labels
         static let tiny = SwiftUI.Font.system(size: 10, weight: .medium, design: .rounded)
     }
     
-    // MARK: - Spacing (8pt grid)
-    // Source: Apple HIG Layout — consistent spacing creates visual structure
+    // MARK: - Spacing (spatial apps use generous spacing)
     
     enum Spacing {
-        static let xs: CGFloat = 4    // between tight elements
-        static let sm: CGFloat = 8    // between related items
-        static let md: CGFloat = 12   // between cards
-        static let lg: CGFloat = 16   // card padding
-        static let xl: CGFloat = 24   // between sections
-        static let xxl: CGFloat = 32  // major section breaks
+        static let xs: CGFloat = 4
+        static let sm: CGFloat = 8
+        static let md: CGFloat = 12
+        static let lg: CGFloat = 16
+        static let xl: CGFloat = 24
+        static let xxl: CGFloat = 32
+        static let canvas: CGFloat = 40  // between major card groups
     }
     
-    // MARK: - Corner Radius
-    // Source: Apple HIG — consistent radii feel native
+    // MARK: - Corner Radius (Muse-like: 12px cards)
     
     enum Radius {
-        static let card: CGFloat = 10    // main cards
-        static let chip: CGFloat = 6     // small chips, pills
-        static let button: CGFloat = 8   // buttons
+        static let card: CGFloat = 12       // main cards (research: 8-12px)
+        static let cardLarge: CGFloat = 16  // hero/focus cards
+        static let chip: CGFloat = 8        // small chips
+        static let button: CGFloat = 8
     }
     
-    // MARK: - Colors (system dynamic colors + one accent)
-    // Source: Apple HIG Color — use system colors for auto light/dark adaptation
+    // MARK: - Shadows (depth = spatial feel)
+    
+    enum Shadow {
+        /// Subtle card shadow — lifts card off canvas
+        static let card = ShadowStyle(
+            color: .black.opacity(0.06),
+            radius: 8,
+            y: 2
+        )
+        
+        /// Hovering card — more depth when focused/dragged
+        static let elevated = ShadowStyle(
+            color: .black.opacity(0.10),
+            radius: 16,
+            y: 4
+        )
+        
+        /// Hero card — the main focus
+        static let hero = ShadowStyle(
+            color: .black.opacity(0.08),
+            radius: 12,
+            y: 3
+        )
+        
+        struct ShadowStyle {
+            let color: Color
+            let radius: CGFloat
+            let y: CGFloat
+        }
+    }
+    
+    // MARK: - Colors
     
     enum Colors {
-        /// ONE accent for entire app — used for selections, primary actions, links
         static let accent = SwiftUI.Color.purple
         
-        /// Type indicator colors — subtle, only for meaning
         static func typeColor(_ type: NodeType) -> SwiftUI.Color {
             switch type {
             case .project: .blue
@@ -68,7 +94,6 @@ enum Theme {
             }
         }
         
-        /// Relevance indicator — green/orange/gray
         static func relevance(_ value: Double) -> SwiftUI.Color {
             switch value {
             case 0.7...: .green
@@ -77,7 +102,6 @@ enum Theme {
             }
         }
         
-        /// Confidence indicator
         static func confidence(_ value: Double) -> SwiftUI.Color {
             switch value {
             case 0.8...: .green
@@ -86,19 +110,51 @@ enum Theme {
             }
         }
         
-        /// System backgrounds (auto-adapt to light/dark)
+        /// Card background — slightly warm, not pure white
         static let cardBackground = SwiftUI.Color(NSColor.controlBackgroundColor)
+        
+        /// Canvas background — the "desk" surface
         static let windowBackground = SwiftUI.Color(NSColor.windowBackgroundColor)
+        
+        /// Card border — very subtle
+        static let cardBorder = SwiftUI.Color.primary.opacity(0.06)
     }
     
-    // MARK: - Layout Constants
+    // MARK: - Layout
     
     enum Layout {
         static let sidebarWidth: CGFloat = 200
         static let inspectorWidth: CGFloat = 300
-        static let focusCardMaxWidth: CGFloat = 600
-        static let quickAddMaxWidth: CGFloat = 400
-        static let recentChipWidth: CGFloat = 120
-        static let recentChipHeight: CGFloat = 60
+        static let sidePanelWidth: CGFloat = 280
+        static let focusCardMaxWidth: CGFloat = 640
+    }
+}
+
+// MARK: - Card View Modifier (spatial style)
+
+struct SpatialCard: ViewModifier {
+    var shadow: Theme.Shadow.ShadowStyle = Theme.Shadow.card
+    var radius: CGFloat = Theme.Radius.card
+    
+    func body(content: Content) -> some View {
+        content
+            .background(
+                RoundedRectangle(cornerRadius: radius)
+                    .fill(Theme.Colors.cardBackground)
+            )
+            .shadow(color: shadow.color, radius: shadow.radius, y: shadow.y)
+            .overlay(
+                RoundedRectangle(cornerRadius: radius)
+                    .strokeBorder(Theme.Colors.cardBorder, lineWidth: 0.5)
+            )
+    }
+}
+
+extension View {
+    func spatialCard(
+        shadow: Theme.Shadow.ShadowStyle = Theme.Shadow.card,
+        radius: CGFloat = Theme.Radius.card
+    ) -> some View {
+        modifier(SpatialCard(shadow: shadow, radius: radius))
     }
 }
