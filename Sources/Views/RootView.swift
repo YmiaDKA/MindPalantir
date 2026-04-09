@@ -12,6 +12,8 @@ struct RootView: View {
     @State private var showQuickSwitcher = false
     @State private var showKeyboardHelp = false
     @State private var showCommandPalette = false
+    @State private var focusMode = false
+    @State private var preFocusShowInspector = false
     @StateObject private var toastManager = ToastManager()
     
     /// Global search results across all nodes — uses FTS5
@@ -82,6 +84,92 @@ struct RootView: View {
     }
 
     var body: some View {
+        if focusMode {
+            focusModeView
+        } else {
+            normalView
+        }
+    }
+
+    /// Focus Mode: just the detail, no sidebar or inspector.
+    /// Inspired by "zen mode" in code editors — full attention on the content.
+    private var focusModeView: some View {
+        Group {
+            if !searchText.isEmpty {
+                searchResultsView
+            } else {
+                detailView
+            }
+        }
+        .toolbar {
+            ToolbarItem(placement: .navigation) {
+                Button {
+                    exitFocusMode()
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.down.right.and.arrow.up.left")
+                            .font(.system(size: 11))
+                        Text("Exit Focus")
+                            .font(Theme.Fonts.caption)
+                    }
+                    .foregroundStyle(Theme.Colors.accent)
+                }
+                .keyboardShortcut(".", modifiers: .command)
+                .help("Exit Focus Mode (⌘.)")
+            }
+            ToolbarItem(placement: .primaryAction) {
+                HStack(spacing: Theme.Spacing.sm) {
+                    Button { showQuickSwitcher = true } label: {
+                        Image(systemName: "magnifyingglass")
+                    }
+                    .controlSize(.small)
+                    .keyboardShortcut("k", modifiers: .command)
+                    .help("Quick Switch (⌘K)")
+
+                    Button {
+                        NotificationCenter.default.post(name: NSNotification.Name("FocusQuickAdd"), object: nil)
+                    } label: {
+                        Image(systemName: "plus.circle")
+                    }
+                    .controlSize(.small)
+                    .keyboardShortcut("n", modifiers: .command)
+                    .help("Quick Add (⌘N)")
+                }
+            }
+        }
+        .searchable(text: $searchText, placement: .toolbar, prompt: "Search your brain...")
+        .overlay {
+            if showQuickSwitcher {
+                ZStack {
+                    Color.black.opacity(0.3)
+                        .ignoresSafeArea()
+                        .onTapGesture { showQuickSwitcher = false }
+                    QuickSwitcher(
+                        selectedNode: $selectedNode,
+                        isPresented: $showQuickSwitcher
+                    )
+                }
+                .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                .animation(.spring(response: 0.2, dampingFraction: 0.8), value: showQuickSwitcher)
+            }
+        }
+        .onChange(of: selectedNode) { _, newNode in
+            if var node = newNode {
+                node.lastAccessedAt = Date()
+                node.accessCount += 1
+                try? store.insertNode(node)
+                if showQuickSwitcher, node.type == .project {
+                    selectedScreen = .projects
+                    withAnimation { navigateToProject = node }
+                    showQuickSwitcher = false
+                }
+            }
+        }
+        .toast(manager: toastManager)
+        .environment(\.toastManager, toastManager)
+    }
+
+    private var normalView: some View {
         NavigationSplitView {
             sidebar
         } detail: {
@@ -161,6 +249,12 @@ struct RootView: View {
                 showInspector = true
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("NavigateToScreen"))) { notification in
+            if let screenName = notification.object as? String,
+               let screen = Screen(rawValue: screenName.capitalized) {
+                selectedScreen = screen
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("ShowToast"))) { notification in
             if let info = notification.object as? [String: String],
                let message = info["message"] {
@@ -213,6 +307,14 @@ struct RootView: View {
                     .help("Commands (⌘⇧P)")
                     .accessibilityLabel("Command Palette")
 
+                    Button { enterFocusMode() } label: {
+                        Image(systemName: "arrow.up.left.and.arrow.down.right")
+                    }
+                    .controlSize(.small)
+                    .keyboardShortcut(".", modifiers: .command)
+                    .help("Focus Mode (⌘.)")
+                    .accessibilityLabel("Focus Mode")
+
                     Button { showKeyboardHelp.toggle() } label: {
                         Image(systemName: "keyboard")
                     }
@@ -227,6 +329,23 @@ struct RootView: View {
         .toolbarRole(.automatic)
         .toast(manager: toastManager)
         .environment(\.toastManager, toastManager)
+    }
+
+    // MARK: - Focus Mode
+
+    private func enterFocusMode() {
+        preFocusShowInspector = showInspector
+        withAnimation(.easeInOut(duration: 0.2)) {
+            focusMode = true
+            showInspector = false
+        }
+    }
+
+    private func exitFocusMode() {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            focusMode = false
+            showInspector = preFocusShowInspector
+        }
     }
 
     // MARK: - Sidebar

@@ -26,7 +26,7 @@ struct CommandPalette: View {
     private var groupedCommands: [CommandGroup] {
         let cmds = commands
         let categories = Dictionary(grouping: cmds) { $0.category }
-        return ["Create", "Actions", "System"]
+        return ["Create", "Actions", "Explore", "System"]
             .compactMap { name in
                 guard let items = categories[name], !items.isEmpty else { return nil }
                 return CommandGroup(category: name, commands: items)
@@ -89,6 +89,25 @@ struct CommandPalette: View {
                 selectedNode = nil
                 toast("Deleted", icon: "trash", style: .warning)
             },
+            // Explore
+            Command(icon: "sparkles", name: "Find Related to Selected", shortcut: nil, category: "Explore") {
+                guard let node = selectedNode else { return }
+                let connected = store.connectedNodes(for: node.id)
+                if connected.isEmpty {
+                    toast("No connections found", icon: "sparkles", style: .info)
+                } else {
+                    selectedNode = connected.first
+                    toast("Found \(connected.count) related nodes", icon: "sparkles")
+                }
+            },
+            Command(icon: "magnifyingglass", name: "Search by Title", shortcut: nil, category: "Explore") {
+                // Trigger the toolbar search
+                NotificationCenter.default.post(name: NSNotification.Name("FocusSearch"), object: nil)
+            },
+            Command(icon: "arrow.triangle.branch", name: "Show Connections Graph", shortcut: nil, category: "Explore") {
+                NotificationCenter.default.post(name: NSNotification.Name("NavigateToScreen"), object: "graph")
+            },
+
             // System
             Command(icon: "arrow.clockwise", name: "Rebuild Search Index", shortcut: nil, category: "System") {
                 store.rebuildSearchIndex()

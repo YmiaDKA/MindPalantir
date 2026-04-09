@@ -25,6 +25,7 @@ struct KeyboardHelp: View {
         Shortcut(key: "8", modifiers: "⌘", description: "People"),
         Shortcut(key: "9", modifiers: "⌘", description: "Sources"),
         Shortcut(key: "F", modifiers: "⌘", description: "Search"),
+        Shortcut(key: ".", modifiers: "⌘", description: "Focus Mode — hide sidebar & inspector"),
         Shortcut(key: "/", modifiers: "⌘", description: "Keyboard shortcuts"),
     ]
 
