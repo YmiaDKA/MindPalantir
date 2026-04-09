@@ -12,6 +12,7 @@ struct RootView: View {
     @State private var showQuickSwitcher = false
     @State private var showKeyboardHelp = false
     @State private var showCommandPalette = false
+    @StateObject private var toastManager = ToastManager()
     
     /// Global search results across all nodes — uses FTS5
     private var searchResults: [MindNode] {
@@ -160,6 +161,20 @@ struct RootView: View {
                 showInspector = true
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("ShowToast"))) { notification in
+            if let info = notification.object as? [String: String],
+               let message = info["message"] {
+                let icon = info["icon"] ?? "checkmark.circle.fill"
+                let styleStr = info["style"] ?? "success"
+                let style: Toast.Style = switch styleStr {
+                case "info": .info
+                case "warning": .warning
+                case "error": .error
+                default: .success
+                }
+                toastManager.show(message, icon: icon, style: style)
+            }
+        }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 HStack(spacing: Theme.Spacing.sm) {
@@ -210,6 +225,8 @@ struct RootView: View {
         }
         .navigationTitle("")
         .toolbarRole(.automatic)
+        .toast(manager: toastManager)
+        .environment(\.toastManager, toastManager)
     }
 
     // MARK: - Sidebar

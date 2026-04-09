@@ -40,26 +40,31 @@ struct CommandPalette: View {
                 let node = MindNode(type: .project, title: "New Project", sourceOrigin: "command_palette")
                 try? store.insertNode(node)
                 selectedNode = node
+                toast("Project created", icon: "folder.badge.plus")
             },
             Command(icon: "checkmark.circle.badge.plus", name: "New Task", shortcut: nil, category: "Create") {
                 let node = MindNode(type: .task, title: "New Task", sourceOrigin: "command_palette")
                 try? store.insertNode(node)
                 selectedNode = node
+                toast("Task created", icon: "checkmark.circle.badge.plus")
             },
             Command(icon: "note.text.badge.plus", name: "New Note", shortcut: nil, category: "Create") {
                 let node = MindNode(type: .note, title: "New Note", sourceOrigin: "command_palette")
                 try? store.insertNode(node)
                 selectedNode = node
+                toast("Note created", icon: "note.text.badge.plus")
             },
             Command(icon: "person.badge.plus", name: "New Person", shortcut: nil, category: "Create") {
                 let node = MindNode(type: .person, title: "New Person", sourceOrigin: "command_palette")
                 try? store.insertNode(node)
                 selectedNode = node
+                toast("Person created", icon: "person.badge.plus")
             },
             Command(icon: "calendar.badge.plus", name: "New Event", shortcut: nil, category: "Create") {
                 let node = MindNode(type: .event, title: "New Event", sourceOrigin: "command_palette")
                 try? store.insertNode(node)
                 selectedNode = node
+                toast("Event created", icon: "calendar.badge.plus")
             },
             // Actions
             Command(icon: "pin", name: "Toggle Pin on Selected", shortcut: nil, category: "Actions") {
@@ -68,6 +73,7 @@ struct CommandPalette: View {
                 node.updatedAt = .now
                 try? store.insertNode(node)
                 selectedNode = node
+                toast(node.pinned ? "Pinned" : "Unpinned", icon: "pin")
             },
             Command(icon: "checkmark.circle", name: "Complete Selected Task", shortcut: nil, category: "Actions") {
                 guard var node = selectedNode, node.type == .task else { return }
@@ -75,11 +81,13 @@ struct CommandPalette: View {
                 node.updatedAt = .now
                 try? store.insertNode(node)
                 selectedNode = node
+                toast(node.status == .completed ? "Completed" : "Reopened", icon: "checkmark.circle")
             },
             Command(icon: "trash", name: "Delete Selected", shortcut: "⌘⌫", category: "Actions") {
                 guard let node = selectedNode else { return }
                 try? store.deleteNode(id: node.id)
                 selectedNode = nil
+                toast("Deleted", icon: "trash", style: .warning)
             },
             // System
             Command(icon: "arrow.clockwise", name: "Rebuild Search Index", shortcut: nil, category: "System") {
@@ -193,6 +201,20 @@ struct CommandPalette: View {
             isPresented = false
             return .handled
         }
+    }
+
+    private func toast(_ message: String, icon: String = "checkmark.circle.fill", style: Toast.Style = .success) {
+        let styleStr: String
+        switch style {
+        case .success: styleStr = "success"
+        case .info: styleStr = "info"
+        case .warning: styleStr = "warning"
+        case .error: styleStr = "error"
+        }
+        NotificationCenter.default.post(
+            name: NSNotification.Name("ShowToast"),
+            object: ["message": message, "icon": icon, "style": styleStr]
+        )
     }
 
     private func exportNodes() {
