@@ -1,6 +1,7 @@
 import SwiftUI
 
 /// Clean inspector panel — right side drawer.
+/// Apple HIG: 300pt width, non-blocking, shows details of selected item.
 struct InspectorPanel: View {
     @Environment(NodeStore.self) private var store
     let node: MindNode
@@ -24,14 +25,14 @@ struct InspectorPanel: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                // Type + Title
+            VStack(alignment: .leading, spacing: Theme.Spacing.xl) {
+                // Type + Pin
                 headerSection
                 
                 // Editable fields
                 fieldsSection
                 
-                // Status
+                // Status pills
                 statusSection
                 
                 // Scores
@@ -46,160 +47,139 @@ struct InspectorPanel: View {
                 // Save
                 saveButton
             }
-            .padding(20)
+            .padding(Theme.Spacing.lg)
         }
-        .frame(minWidth: 280, idealWidth: 320)
-        .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+        .frame(minWidth: 280, idealWidth: 300)
+        .background(Color(NSColor.controlBackgroundColor).opacity(0.3))
     }
     
-    // MARK: - Sections
+    // MARK: - Header
     
     private var headerSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                Text(node.type.icon)
-                    .font(.system(size: 28))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(node.type.rawValue.capitalized)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .textCase(.uppercase)
-                        .tracking(0.5)
-                    Text("#\(node.id.uuidString.prefix(6))")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                        .monospaced()
-                }
-                Spacer()
-                Button {
-                    pinned.toggle()
-                } label: {
-                    Image(systemName: pinned ? "pin.fill" : "pin")
-                        .foregroundStyle(pinned ? .orange : .secondary)
-                        .font(.system(size: 14))
-                }
-                .buttonStyle(.plain)
+        HStack(spacing: Theme.Spacing.sm) {
+            Text(node.type.icon)
+                .font(.system(size: 24))
+            
+            Text(node.type.rawValue.uppercased())
+                .font(Theme.Fonts.tiny)
+                .foregroundStyle(.tertiary)
+                .tracking(1)
+            
+            Spacer()
+            
+            Button { pinned.toggle() } label: {
+                Image(systemName: pinned ? "pin.fill" : "pin")
+                    .foregroundStyle(pinned ? .orange : .secondary)
             }
+            .buttonStyle(.plain)
         }
     }
     
+    // MARK: - Fields
+    
     private var fieldsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
             TextField("Title", text: $title, axis: .vertical)
-                .font(.headline)
+                .font(Theme.Fonts.headline)
                 .textFieldStyle(.plain)
                 .lineLimit(1...3)
             
             Divider()
             
             TextField("Add notes...", text: $nodeBody, axis: .vertical)
-                .font(.body)
+                .font(Theme.Fonts.body)
                 .textFieldStyle(.plain)
                 .lineLimit(3...10)
                 .foregroundStyle(.secondary)
         }
     }
     
+    // MARK: - Status
+    
     private var statusSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Status")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .textCase(.uppercase)
-                .tracking(0.5)
+        VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+            Text("STATUS")
+                .font(Theme.Fonts.tiny)
+                .foregroundStyle(.tertiary)
+                .tracking(1)
             
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    ForEach([NodeStatus.active, .completed, .archived, .draft, .waiting], id: \.self) { s in
-                        Button {
-                            status = s
-                        } label: {
-                            Text(shortLabel(for: s))
-                                .font(.caption)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 4)
-                                .background(
-                                    status == s ? Color.accentColor.opacity(0.2) : Color.clear,
-                                    in: RoundedRectangle(cornerRadius: 6)
-                                )
-                                .foregroundStyle(status == s ? .primary : .secondary)
-                                .fixedSize()
-                        }
-                        .buttonStyle(.plain)
+            HStack(spacing: 6) {
+                ForEach([NodeStatus.active, .completed, .archived, .draft, .waiting], id: \.self) { s in
+                    Button { status = s } label: {
+                        Text(s.rawValue.capitalized)
+                            .font(Theme.Fonts.caption)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 4)
+                            .background(
+                                status == s ? Theme.Colors.accent.opacity(0.15) : Color.clear,
+                                in: RoundedRectangle(cornerRadius: Theme.Radius.chip)
+                            )
+                            .foregroundStyle(status == s ? Theme.Colors.accent : .secondary)
                     }
+                    .buttonStyle(.plain)
                 }
             }
         }
     }
     
+    // MARK: - Scores
+    
     private var scoresSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Scores")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .textCase(.uppercase)
-                .tracking(0.5)
+        VStack(alignment: .leading, spacing: Theme.Spacing.md) {
+            Text("SCORES")
+                .font(Theme.Fonts.tiny)
+                .foregroundStyle(.tertiary)
+                .tracking(1)
             
-            VStack(spacing: 10) {
-                scoreRow(label: "Relevance", value: $relevance, color: .green)
-                scoreRow(label: "Confidence", value: $confidence, color: .orange)
-            }
+            scoreSlider(label: "Relevance", value: $relevance, color: Theme.Colors.relevance(relevance))
+            scoreSlider(label: "Confidence", value: $confidence, color: Theme.Colors.confidence(confidence))
         }
     }
     
-    private func scoreRow(label: String, value: Binding<Double>, color: Color) -> some View {
+    private func scoreSlider(label: String, value: Binding<Double>, color: Color) -> some View {
         VStack(spacing: 4) {
             HStack {
                 Text(label)
-                    .font(.caption)
+                    .font(Theme.Fonts.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
-                Text("\(value.wrappedValue, format: .percent.precision(.fractionLength(0)))")
-                    .font(.caption)
+                Text("\(Int(value.wrappedValue * 100))%")
+                    .font(Theme.Fonts.caption)
                     .monospaced()
                     .foregroundStyle(color)
             }
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(.quaternary)
-                        .frame(height: 4)
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(color.opacity(0.6))
-                        .frame(width: geo.size.width * value.wrappedValue, height: 4)
-                }
-            }
-            .frame(height: 4)
+            
             Slider(value: value, in: 0...1)
+                .tint(color)
                 .labelsHidden()
         }
     }
+    
+    // MARK: - Connections
     
     private var connectionsSection: some View {
         let connected = store.connectedNodes(for: node.id)
         return Group {
             if !connected.isEmpty {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Connections (\(connected.count))")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .textCase(.uppercase)
-                        .tracking(0.5)
+                VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+                    Text("CONNECTIONS (\(connected.count))")
+                        .font(Theme.Fonts.tiny)
+                        .foregroundStyle(.tertiary)
+                        .tracking(1)
                     
-                    VStack(spacing: 4) {
+                    VStack(spacing: 2) {
                         ForEach(connected.prefix(8)) { c in
-                            HStack(spacing: 8) {
+                            HStack(spacing: Theme.Spacing.sm) {
                                 Text(c.type.icon)
                                     .font(.system(size: 12))
                                 Text(c.title)
-                                    .font(.caption)
+                                    .font(Theme.Fonts.caption)
                                     .lineLimit(1)
                                 Spacer()
-                                ConfidenceBadge(value: c.confidence)
                             }
-                            .padding(.horizontal, 8)
+                            .padding(.horizontal, Theme.Spacing.sm)
                             .padding(.vertical, 4)
-                            .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 6))
+                            .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: Theme.Radius.chip))
                         }
                     }
                 }
@@ -207,15 +187,16 @@ struct InspectorPanel: View {
         }
     }
     
+    // MARK: - Metadata
+    
     private var metadataSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Info")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .textCase(.uppercase)
-                .tracking(0.5)
+        VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+            Text("INFO")
+                .font(Theme.Fonts.tiny)
+                .foregroundStyle(.tertiary)
+                .tracking(1)
             
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 3) {
                 metaRow(icon: "clock", text: node.createdAt.formatted(date: .abbreviated, time: .shortened))
                 if let origin = node.sourceOrigin {
                     metaRow(icon: "arrow.triangle.branch", text: origin)
@@ -230,49 +211,38 @@ struct InspectorPanel: View {
     private func metaRow(icon: String, text: String) -> some View {
         HStack(spacing: 6) {
             Image(systemName: icon)
-                .font(.caption2)
+                .font(Theme.Fonts.caption)
                 .foregroundStyle(.tertiary)
                 .frame(width: 12)
             Text(text)
-                .font(.caption2)
+                .font(Theme.Fonts.caption)
                 .foregroundStyle(.secondary)
         }
     }
     
+    // MARK: - Save
+    
     private var saveButton: some View {
-        Button {
-            save()
-        } label: {
+        Button { save() } label: {
             HStack {
                 Spacer()
-                Text("Save Changes")
-                    .font(.system(size: 13, weight: .medium))
+                if showSaveConfirmation {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                    Text("Saved")
+                } else {
+                    Text("Save Changes")
+                }
                 Spacer()
             }
+            .font(Theme.Fonts.body)
             .padding(.vertical, 8)
-            .background(Color.accentColor.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+            .background(Theme.Colors.accent.opacity(0.1), in: RoundedRectangle(cornerRadius: Theme.Radius.button))
             .foregroundStyle(.primary)
         }
         .buttonStyle(.plain)
-        .overlay(alignment: .trailing) {
-            if showSaveConfirmation {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
-                    .transition(.scale.combined(with: .opacity))
-            }
-        }
     }
 
-    private func shortLabel(for status: NodeStatus) -> String {
-        switch status {
-        case .active: "Active"
-        case .completed: "Done"
-        case .archived: "Archived"
-        case .draft: "Draft"
-        case .waiting: "Waiting"
-        }
-    }
-    
     private func save() {
         var updated = node
         updated.title = title
@@ -283,13 +253,9 @@ struct InspectorPanel: View {
         updated.status = status
         updated.updatedAt = .now
         try? store.insertNode(updated)
-        withAnimation {
-            showSaveConfirmation = true
-        }
+        withAnimation { showSaveConfirmation = true }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            withAnimation {
-                showSaveConfirmation = false
-            }
+            withAnimation { showSaveConfirmation = false }
         }
     }
 }

@@ -183,15 +183,13 @@ struct ChatView: View {
         .background(.ultraThinMaterial)
     }
     
-    // MARK: - Send Message
+    // MARK: - Send Message (with tool calling)
     
     private func sendMessage() {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, let client = llmClient else { return }
         
         inputText = ""
-        
-        // Add user message
         messages.append(ChatMessage(role: "user", content: text))
         
         isThinking = true
@@ -199,33 +197,55 @@ struct ChatView: View {
         
         Task { @MainActor in
             do {
-                // Build full brain context
                 let brainContext = BrainContext.build(from: store)
-                
-                // System message with brain context
                 let systemMsg = ChatMessage(role: "system", content: brainContext)
-                
-                // Full conversation
                 let fullMessages = [systemMsg] + messages
                 
-                // Stream response
-                var fullResponse = ""
-                for try await chunk in client.streamChat(messages: fullMessages) {
-                    fullResponse += chunk
-                    streamingText = fullResponse
+                // First call with tools
+                let result = try await client.chat(
+                    messages: fullMessages,
+                    tools: brainToolDefinitions
+                )
+                
+                // If AI wants to use tools, execute them
+                if let toolCalls = result.toolCalls, !toolCalls.isEmpty {
+                    // Add assistant message with tool calls
+                    let assistantContent = result.content
+                    messages.append(ChatMessage(role: "assistant", content: assistantContent.isEmpty ? "Let me check that..." : assistantContent))
+                    
+                    // Execute each tool
+                    for call in toolCalls {
+                        guard let function = call["function"] as? [String: Any],
+                              let name = function["name"] as? String
+                        else { continue }
+                        
+                        let argsStr = function["arguments"] as? String ?? "{}"
+                        let args = (try? JSONSerialization.jsonObject(with: Data(argsStr.utf8)) as? [String: Any]) ?? [:]
+                        
+                        let toolResult = executeBrainTool(name: name, arguments: args, store: store)
+                        
+                        // Add tool result as message
+                        messages.append(ChatMessage(role: "tool", content: toolResult))
+                    }
+                    
+                    // Second call to get final response
+                    let finalMessages = [systemMsg] + messages
+                    let finalResult = try await client.chat(messages: finalMessages)
+                    
+                    if !finalResult.content.isEmpty {
+                        messages.append(ChatMessage(role: "assistant", content: finalResult.content))
+                    }
+                } else {
+                    // No tool calls, just show the response
+                    if !result.content.isEmpty {
+                        messages.append(ChatMessage(role: "assistant", content: result.content))
+                    }
                 }
                 
-                // Add final message
-                messages.append(ChatMessage(role: "assistant", content: fullResponse))
-                streamingText = ""
                 isThinking = false
-                
-                // Auto-create nodes from AI suggestions
-                processSuggestions(fullResponse)
                 
             } catch {
                 messages.append(ChatMessage(role: "assistant", content: "Error: \(error.localizedDescription)"))
-                streamingText = ""
                 isThinking = false
             }
         }

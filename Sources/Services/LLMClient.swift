@@ -20,9 +20,9 @@ final class LLMClient: Sendable {
         self.apiKey = apiKey
     }
     
-    // MARK: - Chat Completion (non-streaming)
+    // MARK: - Chat Completion (non-streaming, with tool support)
     
-    func chat(messages: [ChatMessage], model: String? = nil) async throws -> String {
+    func chat(messages: [ChatMessage], tools: [[String: Any]]? = nil) async throws -> (content: String, toolCalls: [[String: Any]]?) {
         let url = URL(string: "\(baseURL)/chat/completions")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -31,12 +31,17 @@ final class LLMClient: Sendable {
         request.setValue("MindPalantir/1.0", forHTTPHeaderField: "HTTP-Referer")
         request.timeoutInterval = 30
         
-        let body: [String: Any] = [
-            "models": Self.models,  // OpenRouter handles fallback automatically
+        var body: [String: Any] = [
+            "models": Self.models,
             "messages": messages.map { ["role": $0.role, "content": $0.content] },
             "max_tokens": 1024,
             "temperature": 0.7,
         ]
+        
+        if let tools = tools {
+            body["tools"] = tools
+            body["tool_choice"] = "auto"
+        }
         
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         
@@ -113,17 +118,19 @@ final class LLMClient: Sendable {
     
     // MARK: - Parse Response
     
-    private func parseResponse(_ data: Data) throws -> String {
+    private func parseResponse(_ data: Data) throws -> (content: String, toolCalls: [[String: Any]]?) {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let choices = json["choices"] as? [[String: Any]],
               let firstChoice = choices.first,
-              let message = firstChoice["message"] as? [String: Any],
-              let content = message["content"] as? String
+              let message = firstChoice["message"] as? [String: Any]
         else {
             throw LLMError.parseError
         }
         
-        return content
+        let content = message["content"] as? String ?? ""
+        let toolCalls = message["tool_calls"] as? [[String: Any]]
+        
+        return (content, toolCalls)
     }
 }
 
