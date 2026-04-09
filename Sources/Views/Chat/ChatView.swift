@@ -218,8 +218,10 @@ struct ChatView: View {
         currentTask?.cancel()
         currentTask = Task { @MainActor in
             do {
-                let brainContext = BrainContext.build(from: store)
-                let systemMsg = ChatMessage(role: "system", content: brainContext)
+                // Memory Router: route the question to the right context pack
+                // instead of dumping the entire brain every message
+                let routedContext = BrainContext.route(question: text, store: store)
+                let systemMsg = ChatMessage(role: "system", content: routedContext)
                 let fullMessages = [systemMsg] + messages
 
                 // First call with tools (non-streaming — we need to parse tool calls)

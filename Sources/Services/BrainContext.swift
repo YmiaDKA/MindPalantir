@@ -1,112 +1,337 @@
 import Foundation
 
-/// Builds a structured context from the entire brain for the LLM.
-/// This is the "rabbithole" — the AI sees EVERYTHING about you.
+/// Memory Router — routes questions to the right context instead of dumping everything.
+///
+/// Wrong way: send all 130 nodes every message.
+/// Right way: detect intent → choose anchor → retrieve nearest → compress → answer.
+///
+/// This keeps the context small (~20 items max) and relevant to what the user asked.
 @MainActor
 struct BrainContext {
-    
-    /// Build full brain dump as a system prompt context string.
-    /// Keeps it under ~8K tokens by summarizing intelligently.
-    static func build(from store: NodeStore) -> String {
-        var sections: [String] = []
-        
-        sections.append("""
-        You are the AI assistant for MindPalantir, a personal second brain.
-        You have full access to the user's brain data below.
-        Your job: help organize, find connections, ask clarifying questions, and surface relevant info.
-        Be concise. Be specific to THEIR data. Ask questions when uncertain.
-        """)
-        
-        // Projects
-        let projects = store.activeNodes(ofType: .project)
-        if !projects.isEmpty {
-            var projLines = ["## Active Projects"]
-            for p in projects.sorted(by: { $0.relevance > $1.relevance }).prefix(10) {
-                let status = p.status == .completed ? "✅" : (p.pinned ? "📌" : "○")
-                let tasks = store.children(of: p.id, linkType: .belongsTo).filter { $0.type == .task }
-                let openTasks = tasks.filter { $0.status != .completed }
-                let taskSummary = openTasks.isEmpty ? "" : " (\(openTasks.count) open tasks)"
-                projLines.append("\(status) \(p.title) — relevance: \(Int(p.relevance * 100))%\(taskSummary)")
-                if !p.body.isEmpty {
-                    projLines.append("   \(p.body.prefix(100))")
-                }
-            }
-            sections.append(projLines.joined(separator: "\n"))
-        }
-        
-        // Tasks
-        let openTasks = store.activeNodes(ofType: .task).filter { $0.status != .completed }
-        if !openTasks.isEmpty {
-            var taskLines = ["## Open Tasks"]
-            for t in openTasks.sorted(by: { $0.relevance > $1.relevance }).prefix(15) {
-                let due = t.dueDate.map { " (due: \($0.formatted(date: .abbreviated, time: .omitted)))" } ?? ""
-                taskLines.append("- \(t.title)\(due) [relevance: \(Int(t.relevance * 100))%]")
-            }
-            sections.append(taskLines.joined(separator: "\n"))
-        }
-        
-        // People
-        let people = store.activeNodes(ofType: .person)
-        if !people.isEmpty {
-            var peopleLines = ["## People"]
-            for p in people.prefix(10) {
-                peopleLines.append("- \(p.title): \(p.body.prefix(80))")
-            }
-            sections.append(peopleLines.joined(separator: "\n"))
-        }
-        
-        // Recent notes (last 7 days)
-        let recentNotes = store.recentNodes(days: 7, limit: 10).filter { $0.type == .note }
-        if !recentNotes.isEmpty {
-            var noteLines = ["## Recent Notes (last 7 days)"]
-            for n in recentNotes {
-                noteLines.append("- \(n.title): \(n.body.prefix(80))")
-            }
-            sections.append(noteLines.joined(separator: "\n"))
-        }
-        
-        // Events
-        let events = store.nodes(ofType: .event).prefix(5)
-        if !events.isEmpty {
-            var eventLines = ["## Events"]
-            for e in events {
-                let due = e.dueDate.map { " (\($0.formatted(date: .abbreviated, time: .shortened)))" } ?? ""
-                eventLines.append("- \(e.title)\(due)")
-            }
-            sections.append(eventLines.joined(separator: "\n"))
-        }
-        
-        // Connection stats
-        let topConnected = store.nodes.values
-            .map { node in (node, store.linksFor(nodeID: node.id).count) }
-            .sorted { $0.1 > $1.1 }
-            .prefix(5)
-        
-        if !topConnected.isEmpty {
-            var linkLines = ["## Most Connected Items"]
-            for (node, count) in topConnected {
-                linkLines.append("- \(node.type.emoji) \(node.title): \(count) connections")
-            }
-            sections.append(linkLines.joined(separator: "\n"))
-        }
-        
-        // Low confidence items (need clarification)
-        let uncertain = store.uncertainNodes(limit: 5)
-        if !uncertain.isEmpty {
-            var uncLines = ["## Items Needing Clarification"]
-            for u in uncertain {
-                uncLines.append("- \(u.title) (confidence: \(Int(u.confidence * 100))%)")
-            }
-            sections.append(uncLines.joined(separator: "\n"))
-        }
-        
-        return sections.joined(separator: "\n\n")
+
+    // MARK: - Anchors
+
+    enum Anchor: String {
+        case today       // default — what matters now
+        case project     // focused on a specific project
+        case person      // focused on a specific person
+        case date        // focused on a time range
+        case task        // focused on tasks
+        case note        // focused on notes
     }
-    
-    /// Build context for a specific node — focused view.
+
+    // MARK: - Main Router
+
+    /// Route a question to the right context pack.
+    /// This is the ONLY entry point the chat should use.
+    static func route(question: String, store: NodeStore) -> String {
+        let anchor = detectAnchor(question: question, store: store)
+
+        // Build the context pack from the anchor
+        let pack = buildPack(anchor: anchor, question: question, store: store)
+
+        // Compress to a short system prompt
+        return compress(pack: pack, anchor: anchor)
+    }
+
+    // MARK: - Intent Detection
+
+    /// Detect which anchor the question points to.
+    private static func detectAnchor(question: String, store: NodeStore) -> (Anchor, MindNode?) {
+        let lower = question.lowercased()
+
+        // Check for project references
+        for (_, node) in store.nodes where node.type == .project {
+            if lower.contains(node.title.lowercased()) {
+                return (.project, node)
+            }
+        }
+        if lower.contains("project") || lower.contains("working on") || lower.contains("focus") {
+            // Find the top active project
+            let top = store.activeNodes(ofType: .project).first
+            return (.project, top)
+        }
+
+        // Check for person references
+        for (_, node) in store.nodes where node.type == .person {
+            if lower.contains(node.title.lowercased()) {
+                return (.person, node)
+            }
+        }
+        if lower.contains("who") && (lower.contains("working") || lower.contains("involved")) {
+            return (.person, nil)
+        }
+
+        // Check for task references
+        if lower.contains("task") || lower.contains("todo") || lower.contains("do i need")
+            || lower.contains("what should i do") || lower.contains("organize") {
+            return (.task, nil)
+        }
+
+        // Check for date/time references
+        let dateWords = ["yesterday", "today", "last week", "last month", "monday", "tuesday",
+                         "wednesday", "thursday", "friday", "saturday", "sunday"]
+        for word in dateWords {
+            if lower.contains(word) {
+                return (.date, nil)
+            }
+        }
+        if lower.contains("what happened") || lower.contains("what did i") {
+            return (.date, nil)
+        }
+
+        // Check for note references
+        if lower.contains("note") || lower.contains("idea") || lower.contains("remember") {
+            return (.note, nil)
+        }
+
+        // Default: today
+        return (.today, nil)
+    }
+
+    // MARK: - Context Pack Builder
+
+    /// A context pack = a small set of relevant nodes + their connections.
+    struct ContextPack {
+        var focus: [MindNode] = []        // the main items
+        var connected: [MindNode] = []    // directly linked items
+        var nearby: [MindNode] = []       // related but less direct
+        var stats: String = ""            // summary stats
+        var uncertain: [MindNode] = []    // low confidence items needing attention
+    }
+
+    private static func buildPack(anchor: (Anchor, MindNode?), question: String, store: NodeStore) -> ContextPack {
+        var pack = ContextPack()
+
+        switch anchor.0 {
+        case .today:
+            pack = buildTodayPack(store: store)
+        case .project:
+            pack = buildProjectPack(focus: anchor.1, store: store)
+        case .person:
+            pack = buildPersonPack(focus: anchor.1, store: store)
+        case .date:
+            pack = buildDatePack(store: store)
+        case .task:
+            pack = buildTaskPack(store: store)
+        case .note:
+            pack = buildNotePack(store: store)
+        }
+
+        // Always include a few uncertain items (they need attention)
+        pack.uncertain = store.uncertainNodes(limit: 3)
+
+        return pack
+    }
+
+    // MARK: - Anchor: Today
+
+    private static func buildTodayPack(store: NodeStore) -> ContextPack {
+        var pack = ContextPack()
+
+        // Focus: top project + top open tasks
+        let topProject = store.activeNodes(ofType: .project)
+            .filter { $0.pinned || $0.relevance > 0.7 }
+            .first
+        if let p = topProject {
+            pack.focus.append(p)
+            // Get its tasks
+            pack.connected = store.children(of: p.id, linkType: .belongsTo)
+                .filter { $0.type == .task && $0.status != .completed }
+                .sorted { $0.relevance > $1.relevance }
+                .prefix(5)
+                .map { $0 }
+        }
+
+        // Top standalone tasks
+        let standaloneTasks = store.activeNodes(ofType: .task)
+            .filter { $0.status != .completed }
+            .sorted { $0.relevance > $1.relevance }
+            .prefix(3)
+            .map { $0 }
+        pack.nearby = standaloneTasks
+
+        // Recent activity (last 2 days)
+        let recent = store.recentNodes(days: 2, limit: 3)
+        pack.nearby.append(contentsOf: recent.filter { !pack.nearby.contains($0) })
+
+        // Stats
+        let openTaskCount = store.activeNodes(ofType: .task).filter { $0.status != .completed }.count
+        pack.stats = "\(store.nodes.count) nodes, \(openTaskCount) open tasks"
+
+        return pack
+    }
+
+    // MARK: - Anchor: Project
+
+    private static func buildProjectPack(focus: MindNode?, store: NodeStore) -> ContextPack {
+        var pack = ContextPack()
+
+        guard let project = focus ?? store.activeNodes(ofType: .project).first else {
+            return pack
+        }
+
+        pack.focus = [project]
+
+        // Direct children via belongsTo
+        let children = store.children(of: project.id, linkType: .belongsTo)
+        pack.connected = children.sorted { $0.relevance > $1.relevance }.prefix(10).map { $0 }
+
+        // Other connections
+        let otherConnections = store.connectedNodes(for: project.id)
+            .filter { !children.contains($0) }
+        pack.nearby = otherConnections.prefix(5).map { $0 }
+
+        // Stats
+        let tasks = children.filter { $0.type == .task }
+        let completed = tasks.filter { $0.status == .completed }.count
+        pack.stats = "\(completed)/\(tasks.count) tasks done, \(store.linksFor(nodeID: project.id).count) connections"
+
+        return pack
+    }
+
+    // MARK: - Anchor: Person
+
+    private static func buildPersonPack(focus: MindNode?, store: NodeStore) -> ContextPack {
+        var pack = ContextPack()
+
+        if let person = focus {
+            pack.focus = [person]
+            let connected = store.connectedNodes(for: person.id)
+            pack.connected = connected.prefix(10).map { $0 }
+        } else {
+            // Show all people
+            pack.focus = store.activeNodes(ofType: .person).prefix(5).map { $0 }
+        }
+
+        return pack
+    }
+
+    // MARK: - Anchor: Date
+
+    private static func buildDatePack(store: NodeStore) -> ContextPack {
+        var pack = ContextPack()
+
+        // Recent activity (last 3 days)
+        let recent = store.recentNodes(days: 3, limit: 10)
+        pack.focus = recent.prefix(5).map { $0 }
+        pack.nearby = recent.dropFirst(5).map { $0 }
+
+        // Today's events
+        let todayEvents = store.nodes(ofType: .event).filter { node in
+            guard let due = node.dueDate else { return false }
+            return Calendar.current.isDateInToday(due)
+        }
+        pack.connected = Array(todayEvents)
+
+        return pack
+    }
+
+    // MARK: - Anchor: Task
+
+    private static func buildTaskPack(store: NodeStore) -> ContextPack {
+        var pack = ContextPack()
+
+        let openTasks = store.activeNodes(ofType: .task)
+            .filter { $0.status != .completed }
+            .sorted { $0.relevance > $1.relevance }
+
+        pack.focus = openTasks.prefix(8).map { $0 }
+
+        // Show which projects these belong to
+        let projectIds = Set(pack.focus.compactMap { task in
+            store.links.values.first(where: { $0.targetID == task.id && $0.linkType == .belongsTo })?.sourceID
+        })
+        pack.connected = projectIds.compactMap { store.nodes[$0] }
+
+        return pack
+    }
+
+    // MARK: - Anchor: Note
+
+    private static func buildNotePack(store: NodeStore) -> ContextPack {
+        var pack = ContextPack()
+
+        let recentNotes = store.recentNodes(days: 14, limit: 8).filter { $0.type == .note }
+        pack.focus = recentNotes.prefix(5).map { $0 }
+        pack.nearby = recentNotes.dropFirst(5).map { $0 }
+
+        return pack
+    }
+
+    // MARK: - Compressor
+
+    /// Compress a context pack into a small system prompt.
+    private static func compress(pack: ContextPack, anchor: (Anchor, MindNode?)) -> String {
+        var lines: [String] = []
+
+        // Header
+        lines.append("You are the AI assistant for MindPalantir, a personal second brain.")
+        lines.append("Be concise. Be specific to their data. Ask questions when uncertain.")
+        lines.append("")
+
+        // Focus items
+        if !pack.focus.isEmpty {
+            lines.append("## Focus")
+            for node in pack.focus {
+                lines.append(formatNode(node))
+            }
+            lines.append("")
+        }
+
+        // Connected items
+        if !pack.connected.isEmpty {
+            lines.append("## Related")
+            for node in pack.connected.prefix(8) {
+                lines.append("- \(node.type.emoji) \(node.title) [\(node.status.rawValue)]")
+            }
+            lines.append("")
+        }
+
+        // Nearby items
+        if !pack.nearby.isEmpty {
+            lines.append("## Nearby")
+            for node in pack.nearby.prefix(5) {
+                lines.append("- \(node.type.emoji) \(node.title)")
+            }
+            lines.append("")
+        }
+
+        // Stats
+        if !pack.stats.isEmpty {
+            lines.append("## Stats")
+            lines.append(pack.stats)
+            lines.append("")
+        }
+
+        // Uncertain items
+        if !pack.uncertain.isEmpty {
+            lines.append("## Needs Clarification")
+            for u in pack.uncertain {
+                lines.append("- \(u.title) (confidence: \(Int(u.confidence * 100))%)")
+            }
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
+    // MARK: - Formatters
+
+    private static func formatNode(_ node: MindNode) -> String {
+        var parts = ["\(node.type.emoji) \(node.title)"]
+        parts.append("[\(node.status.rawValue), relevance: \(Int(node.relevance * 100))%]")
+        if !node.body.isEmpty {
+            parts.append("\n   \(node.body.prefix(120))")
+        }
+        return "- " + parts.joined(separator: " ")
+    }
+
+    // MARK: - Legacy (keep for non-chat uses)
+
+    /// Build context for a specific node — used by inspector, not by chat routing.
     static func buildNodeContext(node: MindNode, store: NodeStore) -> String {
         var lines: [String] = []
-        
+
         lines.append("## Focused Item: \(node.title)")
         lines.append("Type: \(node.type.rawValue) | Status: \(node.status.rawValue)")
         lines.append("Relevance: \(Int(node.relevance * 100))% | Confidence: \(Int(node.confidence * 100))%")
@@ -116,7 +341,7 @@ struct BrainContext {
         if let origin = node.sourceOrigin {
             lines.append("Source: \(origin)")
         }
-        
+
         let connected = store.connectedNodes(for: node.id)
         if !connected.isEmpty {
             lines.append("\nConnected to:")
@@ -124,41 +349,7 @@ struct BrainContext {
                 lines.append("  \(c.type.emoji) \(c.title)")
             }
         }
-        
-        return lines.joined(separator: "\n")
-    }
-    
-    /// Build context filtered by date range — "what happened on April 5?"
-    static func buildDateContext(date: Date, store: NodeStore) -> String {
-        let cal = Calendar.current
-        let dayStart = cal.startOfDay(for: date)
-        let dayEnd = cal.date(byAdding: .day, value: 1, to: dayStart)!
-        
-        let dayNodes = store.nodes.values.filter { node in
-            node.createdAt >= dayStart && node.createdAt < dayEnd ||
-            node.updatedAt >= dayStart && node.updatedAt < dayEnd ||
-            (node.dueDate != nil && node.dueDate! >= dayStart && node.dueDate! < dayEnd)
-        }
-        
-        guard !dayNodes.isEmpty else {
-            return "No data found for \(date.formatted(date: .long, time: .omitted))."
-        }
-        
-        var lines = ["## Data for \(date.formatted(date: .long, time: .omitted))"]
-        
-        let created = dayNodes.filter { $0.createdAt >= dayStart && $0.createdAt < dayEnd }
-        if !created.isEmpty {
-            lines.append("Created:")
-            for n in created { lines.append("  \(n.type.emoji) \(n.title)") }
-        }
-        
-        let createdIds = Set(created.map { $0.id })
-        let updated = dayNodes.filter { $0.updatedAt >= dayStart && $0.updatedAt < dayEnd && !createdIds.contains($0.id) }
-        if !updated.isEmpty {
-            lines.append("Updated:")
-            for n in updated { lines.append("  \(n.type.emoji) \(n.title)") }
-        }
-        
+
         return lines.joined(separator: "\n")
     }
 }
