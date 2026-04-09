@@ -7,6 +7,20 @@ struct RootView: View {
     @State private var selectedScreen: Screen = .today
     @State private var selectedNode: MindNode?
     @State private var showInspector = false
+    @State private var searchText = ""
+    
+    /// Global search results across all nodes
+    private var searchResults: [MindNode] {
+        guard !searchText.isEmpty else { return [] }
+        let query = searchText.lowercased()
+        return store.nodes.values
+            .filter { node in
+                node.title.lowercased().contains(query) ||
+                node.body.lowercased().contains(query) ||
+                node.metadata.values.contains { $0.lowercased().contains(query) }
+            }
+            .sorted { $0.relevance > $1.relevance }
+    }
 
     enum Screen: String, CaseIterable, Identifiable, Hashable {
         case today = "Today"
@@ -56,8 +70,13 @@ struct RootView: View {
         NavigationSplitView {
             sidebar
         } detail: {
-            detailView
+            if !searchText.isEmpty {
+                searchResultsView
+            } else {
+                detailView
+            }
         }
+        .searchable(text: $searchText, placement: .toolbar, prompt: "Search your brain...")
         .inspector(isPresented: $showInspector) {
             if let node = selectedNode {
                 InspectorPanel(node: node)
@@ -138,6 +157,30 @@ struct RootView: View {
         }
     }
     
+    // MARK: - Search Results
+    
+    private var searchResultsView: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Header
+            HStack {
+                Text("\(searchResults.count) results")
+                    .font(Theme.Fonts.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+            .padding(.horizontal, Theme.Spacing.lg)
+            .padding(.vertical, Theme.Spacing.sm)
+            
+            Divider()
+            
+            // Results list
+            List(searchResults) { node in
+                SearchResultRow(node: node, selectedNode: $selectedNode)
+            }
+            .listStyle(.plain)
+        }
+    }
+    
     // MARK: - Inspector Empty State
     
     private var inspectorEmptyState: some View {
@@ -155,5 +198,53 @@ struct RootView: View {
             Spacer()
         }
         .frame(maxWidth: .infinity)
+    }
+}
+
+// MARK: - Search Result Row
+
+struct SearchResultRow: View {
+    let node: MindNode
+    @Binding var selectedNode: MindNode?
+    
+    var body: some View {
+        HStack(spacing: Theme.Spacing.md) {
+            // Type icon
+            Text(node.type.icon)
+                .font(.system(size: 16))
+            
+            // Content
+            VStack(alignment: .leading, spacing: 2) {
+                Text(node.title)
+                    .font(Theme.Fonts.headline)
+                    .lineLimit(1)
+                if !node.body.isEmpty {
+                    Text(node.body)
+                        .font(Theme.Fonts.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                HStack(spacing: 6) {
+                    Text(node.type.rawValue.capitalized)
+                        .font(Theme.Fonts.tiny)
+                        .foregroundStyle(Theme.Colors.typeColor(node.type))
+                    Text("·")
+                        .foregroundStyle(.tertiary)
+                    Text(node.updatedAt, style: .relative)
+                        .font(Theme.Fonts.tiny)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            
+            Spacer()
+            
+            // Relevance indicator
+            Circle()
+                .fill(Theme.Colors.relevance(node.relevance))
+                .frame(width: 6, height: 6)
+        }
+        .padding(.vertical, 2)
+        .contentShape(Rectangle())
+        .onTapGesture { selectedNode = node }
     }
 }

@@ -441,7 +441,27 @@ User speaks → [Whisper API / on-device] → Text
 
 ---
 
-## 12. Key Design Decisions (and Why)
+## 12. Search (Apple HIG)
+
+### Placement
+- Search field at trailing edge of toolbar (macOS convention)
+- `.searchable()` modifier with prompt "Search your brain..."
+- Search as you type — immediate results
+
+### Scope
+- Default: search ALL node types
+- Scope control: segmented picker for Projects/Notes/Tasks/People/Events/Sources
+- Results sorted by relevance, then recency
+
+### Implementation
+```swift
+.searchable(text: $searchText, prompt: "Search your brain...")
+```
+- Search across title + body + metadata
+- SQLite FTS5 for fast full-text search at scale
+- Results appear inline replacing current view
+
+## 13. Key Design Decisions (and Why)
 
 | Decision | Why |
 |----------|-----|
