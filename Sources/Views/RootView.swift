@@ -13,6 +13,7 @@ struct RootView: View {
     @State private var showKeyboardHelp = false
     @State private var showCommandPalette = false
     @State private var showQuickTask = false
+    @State private var showTemplateNote = false
     @State private var focusMode = false
     @State private var preFocusShowInspector = false
     @StateObject private var toastManager = ToastManager()
@@ -141,6 +142,12 @@ struct RootView: View {
                     }
                     .controlSize(.small)
                     .help("Quick Task (⌘T)")
+
+                    Button { showTemplateNote = true } label: {
+                        Image(systemName: "doc.text.badge.plus")
+                    }
+                    .controlSize(.small)
+                    .help("Template Note (⌘⇧N)")
                 }
             }
         }
@@ -172,6 +179,19 @@ struct RootView: View {
                 .transition(.opacity.combined(with: .scale(scale: 0.95)))
                 .animation(.spring(response: 0.2, dampingFraction: 0.8), value: showQuickTask)
             }
+            if showTemplateNote {
+                ZStack {
+                    Color.black.opacity(0.25)
+                        .ignoresSafeArea()
+                        .onTapGesture { showTemplateNote = false }
+                    TemplateNotePanel(
+                        isPresented: $showTemplateNote,
+                        selectedNode: $selectedNode
+                    )
+                }
+                .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                .animation(.spring(response: 0.2, dampingFraction: 0.8), value: showTemplateNote)
+            }
         }
         .onChange(of: selectedNode) { _, newNode in
             if var node = newNode {
@@ -193,6 +213,9 @@ struct RootView: View {
                 .opacity(0)
             Button("") { showQuickTask = true }
                 .keyboardShortcut("t", modifiers: .command)
+                .opacity(0)
+            Button("") { showTemplateNote = true }
+                .keyboardShortcut("n", modifiers: [.command, .shift])
                 .opacity(0)
         }
     }
@@ -264,6 +287,19 @@ struct RootView: View {
                 }
                 .transition(.opacity.combined(with: .scale(scale: 0.95)))
                 .animation(.spring(response: 0.2, dampingFraction: 0.8), value: showQuickTask)
+            }
+            if showTemplateNote {
+                ZStack {
+                    Color.black.opacity(0.25)
+                        .ignoresSafeArea()
+                        .onTapGesture { showTemplateNote = false }
+                    TemplateNotePanel(
+                        isPresented: $showTemplateNote,
+                        selectedNode: $selectedNode
+                    )
+                }
+                .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                .animation(.spring(response: 0.2, dampingFraction: 0.8), value: showTemplateNote)
             }
         }
         .onChange(of: selectedNode) { _, newNode in
@@ -345,6 +381,13 @@ struct RootView: View {
                     .help("Quick Task (⌘T)")
                     .accessibilityLabel("Quick Task")
 
+                    Button { showTemplateNote = true } label: {
+                        Image(systemName: "doc.text.badge.plus")
+                    }
+                    .controlSize(.small)
+                    .help("Template Note (⌘⇧N)")
+                    .accessibilityLabel("Template Note")
+
                     Button { showInspector.toggle() } label: {
                         Image(systemName: "sidebar.right")
                     }
@@ -391,6 +434,10 @@ struct RootView: View {
             // Global keyboard shortcut: quick task
             Button("") { showQuickTask = true }
                 .keyboardShortcut("t", modifiers: .command)
+                .opacity(0)
+            // Global keyboard shortcut: template note
+            Button("") { showTemplateNote = true }
+                .keyboardShortcut("n", modifiers: [.command, .shift])
                 .opacity(0)
         }
     }

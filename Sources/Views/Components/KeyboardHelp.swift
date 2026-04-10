@@ -14,6 +14,7 @@ struct KeyboardHelp: View {
     private let shortcuts: [Shortcut] = [
         Shortcut(key: "K", modifiers: "⌘", description: "Quick Switch — search anything"),
         Shortcut(key: "N", modifiers: "⌘", description: "Quick Add — capture a thought"),
+        Shortcut(key: "N", modifiers: "⌘⇧", description: "New note from template"),
         Shortcut(key: "I", modifiers: "⌘", description: "Toggle Inspector"),
         Shortcut(key: "D", modifiers: "⌘", description: "Duplicate selected node"),
         Shortcut(key: "1", modifiers: "⌘", description: "Today view"),
