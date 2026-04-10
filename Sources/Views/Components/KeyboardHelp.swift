@@ -32,15 +32,14 @@ struct KeyboardHelp: View {
             Shortcut(key: ".", modifiers: "⌘", description: "Focus Mode"),
             Shortcut(key: "/", modifiers: "⌘", description: "This help"),
         ]),
-        ShortcutGroup(title: "Navigation", shortcuts: [
-            Shortcut(key: "1–9", modifiers: "⌘", description: "Switch screens"),
-            Shortcut(key: "↑↓", modifiers: "", description: "Navigate items"),
-            Shortcut(key: "J / K", modifiers: "", description: "Navigate (Vim)"),
-            Shortcut(key: "←→", modifiers: "", description: "Navigate horizontal"),
-            Shortcut(key: "H / L", modifiers: "", description: "Navigate horizontal (Vim)"),
-            Shortcut(key: "Tab", modifiers: "", description: "Next section"),
-            Shortcut(key: "⇧Tab", modifiers: "", description: "Previous section"),
-        ]),
+            ShortcutGroup(title: "Navigation", shortcuts: [
+                Shortcut(key: "1–9", modifiers: "⌘", description: "Switch screens"),
+                Shortcut(key: "↑↓", modifiers: "", description: "Navigate items"),
+                Shortcut(key: "J / K", modifiers: "", description: "Navigate (Vim)"),
+                Shortcut(key: "←→", modifiers: "", description: "Navigate horizontal"),
+                Shortcut(key: "H / L", modifiers: "", description: "Navigate horizontal (Vim)"),
+                Shortcut(key: "Tab", modifiers: "", description: "Cycle sections"),
+            ]),
         ShortcutGroup(title: "Actions", shortcuts: [
             Shortcut(key: "↵", modifiers: "", description: "Open focused item"),
             Shortcut(key: "Space", modifiers: "", description: "Toggle task done"),

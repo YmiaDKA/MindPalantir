@@ -156,12 +156,8 @@ struct TodayView: View {
         .onKeyPress(.rightArrow) { nav.moveFocus(direction: 1, in: allNavigableItems); return .handled }
         .onKeyPress("h") { nav.moveFocus(direction: -1, in: allNavigableItems); return .handled }
         .onKeyPress("l") { nav.moveFocus(direction: 1, in: allNavigableItems); return .handled }
-        // Tab / Shift-Tab: cycle between sections
+        // Tab: cycle between sections (Shift-Tab not distinguishable in SwiftUI onKeyPress)
         .onKeyPress(.tab) { nav.cycleSection(direction: 1, sections: navigableSections); return .handled }
-        .onKeyPress("\t") { // Shift-Tab
-            nav.cycleSection(direction: -1, sections: navigableSections)
-            return .handled
-        }
         // Enter: activate focused item
         .onKeyPress(.return) { activateFocusedItem(); return .handled }
         // Space: toggle task completion when task focused

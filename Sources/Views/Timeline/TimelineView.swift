@@ -141,11 +141,21 @@ struct TimelineView: View {
 
     private var riverView: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // River canvas
-            TimeRiverCanvas(
-                selectedNode: $selectedNode,
-                nodes: timelineNodes
-            )
+            // River canvas with floating detail card
+            ZStack(alignment: .topTrailing) {
+                TimeRiverCanvas(
+                    selectedNode: $selectedNode,
+                    nodes: timelineNodes
+                )
+
+                // Floating detail card when a node is selected
+                if let node = selectedNode {
+                    riverDetailCard(node: node)
+                        .padding(.top, Theme.Spacing.sm)
+                        .padding(.trailing, Theme.Spacing.md)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+            }
             .padding(.horizontal, Theme.Spacing.md)
             .padding(.top, Theme.Spacing.md)
 
@@ -257,6 +267,71 @@ struct TimelineView: View {
             .padding(.horizontal, Theme.Spacing.lg)
         }
         .padding(.vertical, Theme.Spacing.sm)
+    }
+
+    // MARK: - Density Strip
+
+    /// Floating detail card for selected node in river view
+    private func riverDetailCard(node: MindNode) -> some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+            HStack(spacing: Theme.Spacing.sm) {
+                Image(systemName: node.type.sfIcon)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.Colors.typeColor(node.type))
+
+                Text(node.type.rawValue.capitalized)
+                    .font(Theme.Fonts.tiny)
+                    .foregroundStyle(.tertiary)
+
+                Spacer()
+
+                Button { selectedNode = nil } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+            }
+
+            Text(node.title)
+                .font(Theme.Fonts.headline)
+                .lineLimit(2)
+
+            if !node.body.isEmpty {
+                Text(node.body)
+                    .font(Theme.Fonts.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+
+            HStack(spacing: Theme.Spacing.sm) {
+                Text(node.updatedAt, style: .relative)
+                    .font(Theme.Fonts.tiny)
+                    .foregroundStyle(.tertiary)
+
+                if node.pinned {
+                    Image(systemName: "pin.fill")
+                        .font(.system(size: 8))
+                        .foregroundStyle(.orange)
+                }
+
+                Circle()
+                    .fill(Theme.Colors.relevance(node.relevance))
+                    .frame(width: 5, height: 5)
+
+                Spacer()
+
+                Text("↵ open")
+                    .font(Theme.Fonts.tiny)
+                    .foregroundStyle(.tertiary)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 3))
+            }
+        }
+        .padding(Theme.Spacing.md)
+        .frame(width: 200)
+        .spatialCard(shadow: Theme.Shadow.elevated)
     }
 
     // MARK: - Density Strip
