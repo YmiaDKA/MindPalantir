@@ -228,6 +228,9 @@ struct RootView: View {
             Button("") { showTemplateNote = true }
                 .keyboardShortcut("n", modifiers: [.command, .shift])
                 .opacity(0)
+            Button("") { togglePinSelected() }
+                .keyboardShortcut("p", modifiers: .command)
+                .opacity(0)
         }
     }
 
@@ -450,7 +453,25 @@ struct RootView: View {
             Button("") { showTemplateNote = true }
                 .keyboardShortcut("n", modifiers: [.command, .shift])
                 .opacity(0)
+            // Global keyboard shortcut: pin/unpin selected node
+            Button("") { togglePinSelected() }
+                .keyboardShortcut("p", modifiers: .command)
+                .opacity(0)
         }
+    }
+
+    // MARK: - Pin Toggle
+
+    private func togglePinSelected() {
+        guard var node = selectedNode else { return }
+        node.pinned.toggle()
+        node.updatedAt = .now
+        try? store.insertNode(node)
+        selectedNode = node
+        toastManager.show(
+            node.pinned ? "Pinned \"\(node.title)\"" : "Unpinned \"\(node.title)\"",
+            icon: node.pinned ? "pin.fill" : "pin"
+        )
     }
 
     // MARK: - Duplicate Node

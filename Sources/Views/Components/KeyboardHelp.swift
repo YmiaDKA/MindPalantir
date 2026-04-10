@@ -17,6 +17,9 @@ struct KeyboardHelp: View {
         Shortcut(key: "N", modifiers: "⌘⇧", description: "New note from template"),
         Shortcut(key: "I", modifiers: "⌘", description: "Toggle Inspector"),
         Shortcut(key: "D", modifiers: "⌘", description: "Duplicate selected node"),
+        Shortcut(key: "P", modifiers: "⌘", description: "Pin/unpin selected node"),
+        Shortcut(key: "T", modifiers: "⌘", description: "Quick Task"),
+        Shortcut(key: "P", modifiers: "⌘⇧", description: "Command Palette"),
         Shortcut(key: "1", modifiers: "⌘", description: "Today view"),
         Shortcut(key: "2", modifiers: "⌘", description: "Chat"),
         Shortcut(key: "3", modifiers: "⌘", description: "Projects"),
@@ -29,6 +32,8 @@ struct KeyboardHelp: View {
         Shortcut(key: "F", modifiers: "⌘", description: "Search"),
         Shortcut(key: ".", modifiers: "⌘", description: "Focus Mode — hide sidebar & inspector"),
         Shortcut(key: "/", modifiers: "⌘", description: "Keyboard shortcuts"),
+        Shortcut(key: "↑↓", modifiers: "", description: "Navigate cards on Today view"),
+        Shortcut(key: "↵", modifiers: "", description: "Open focused item"),
     ]
 
     var body: some View {

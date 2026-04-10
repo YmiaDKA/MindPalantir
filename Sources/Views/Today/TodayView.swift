@@ -3,10 +3,34 @@ import SwiftUI
 /// The desk — a spatial canvas of what matters now.
 /// Inspired by Muse: cards with depth, organic spacing, no grid feel.
 /// Each card breathes. The canvas has weight.
+/// Keyboard navigation: ↑↓ to move between cards, Enter to open, Escape to clear.
 struct TodayView: View {
     @Environment(NodeStore.self) private var store
     @Binding var selectedNode: MindNode?
     var onOpenProject: ((MindNode) -> Void)? = nil
+    
+    // Keyboard navigation state
+    @State private var focusedItemID: String? = nil
+    
+    /// All navigable items in order (top to bottom)
+    private var navigableItems: [NavigableItem] {
+        var items: [NavigableItem] = []
+        
+        if focusProject != nil {
+            items.append(NavigableItem(id: "focus-card", section: "focus"))
+        }
+        for task in openTasks {
+            items.append(NavigableItem(id: "task-\(task.id.uuidString)", section: "tasks"))
+        }
+        for project in otherProjects {
+            items.append(NavigableItem(id: "project-\(project.id.uuidString)", section: "projects"))
+        }
+        for node in recentActivity {
+            items.append(NavigableItem(id: "recent-\(node.id.uuidString)", section: "recent"))
+        }
+        
+        return items
+    }
     
     private var focusProject: MindNode? {
         store.activeNodes(ofType: .project)
@@ -94,6 +118,70 @@ struct TodayView: View {
             }
         }
         .background(Theme.Colors.windowBackground)
+        // Keyboard navigation — arrow keys to move, Enter to open, Escape to clear
+        .onKeyPress(.upArrow) {
+            navigateFocus(direction: -1)
+            return .handled
+        }
+        .onKeyPress(.downArrow) {
+            navigateFocus(direction: 1)
+            return .handled
+        }
+        .onKeyPress(.return) {
+            activateFocusedItem()
+            return .handled
+        }
+        .onKeyPress(.escape) {
+            if focusedItemID != nil {
+                focusedItemID = nil
+                return .handled
+            }
+            return .ignored
+        }
+    }
+    
+    // MARK: - Keyboard Navigation
+    
+    private func navigateFocus(direction: Int) {
+        let items = navigableItems
+        guard !items.isEmpty else { return }
+        
+        if let currentID = focusedItemID,
+           let currentIndex = items.firstIndex(where: { $0.id == currentID }) {
+            let newIndex = max(0, min(items.count - 1, currentIndex + direction))
+            focusedItemID = items[newIndex].id
+        } else {
+            // No focus yet — start at first or last
+            focusedItemID = direction > 0 ? items.first?.id : items.last?.id
+        }
+    }
+    
+    private func activateFocusedItem() {
+        guard let focusedID = focusedItemID else { return }
+        
+        if focusedID == "focus-card", let project = focusProject {
+            if let onOpenProject { onOpenProject(project) }
+            else { selectedNode = project }
+        } else if focusedID.hasPrefix("task-") {
+            let taskID = String(focusedID.dropFirst(5))
+            if let uuid = UUID(uuidString: taskID),
+               let task = store.nodes[uuid] {
+                selectedNode = task
+            }
+        } else if focusedID.hasPrefix("project-") {
+            let projectID = String(focusedID.dropFirst(8))
+            if let uuid = UUID(uuidString: projectID),
+               let project = store.nodes[uuid] {
+                if let onOpenProject { onOpenProject(project) }
+                else { selectedNode = project }
+            }
+        } else if focusedID.hasPrefix("recent-") {
+            let nodeID = String(focusedID.dropFirst(7))
+            if let uuid = UUID(uuidString: nodeID),
+               let node = store.nodes[uuid] {
+                selectedNode = node
+            }
+        }
     }
 
     // MARK: - Empty State
@@ -161,6 +249,8 @@ struct TodayView: View {
             // Focus: the hero card — big, breathing, takes space
             if let project = focusProject {
                 SpatialFocusCard(project: project, store: store, selectedNode: $selectedNode, onOpenProject: onOpenProject)
+                    .focusRing(isFocused: focusedItemID == "focus-card")
+                    .id("focus-card")
             }
 
             // Tasks — inline, not in a separate panel
@@ -270,11 +360,21 @@ struct TodayView: View {
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
                     .background(.quaternary, in: Capsule())
+                
+                Spacer()
+                
+                if focusedItemID?.hasPrefix("task-") == true {
+                    Text("↑↓ navigate · ↵ open")
+                        .font(Theme.Fonts.tiny)
+                        .foregroundStyle(.tertiary)
+                }
             }
 
             VStack(spacing: 1) {
                 ForEach(openTasks) { task in
+                    let itemID = "task-\(task.id.uuidString)"
                     SpatialTaskRow(task: task, selectedNode: $selectedNode)
+                        .focusRing(isFocused: focusedItemID == itemID)
                 }
             }
             .spatialCard()
@@ -285,17 +385,27 @@ struct TodayView: View {
 
     private var projectBoard: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.md) {
-            Text("Other Projects")
-                .font(Theme.Fonts.sectionTitle)
-                .foregroundStyle(.primary)
+            HStack(spacing: Theme.Spacing.sm) {
+                Text("Other Projects")
+                    .font(Theme.Fonts.sectionTitle)
+                    .foregroundStyle(.primary)
+                Spacer()
+                if focusedItemID?.hasPrefix("project-") == true {
+                    Text("↑↓ navigate · ↵ open")
+                        .font(Theme.Fonts.tiny)
+                        .foregroundStyle(.tertiary)
+                }
+            }
 
             // Flowing grid — not rigid
             FlowLayout(spacing: Theme.Spacing.sm) {
                 ForEach(otherProjects) { project in
+                    let itemID = "project-\(project.id.uuidString)"
                     SpatialProjectChip(project: project, store: store) {
                         if let onOpenProject { onOpenProject(project) }
                         else { selectedNode = project }
                     }
+                    .focusRing(isFocused: focusedItemID == itemID)
                 }
             }
         }
@@ -311,7 +421,9 @@ struct TodayView: View {
 
             FlowLayout(spacing: Theme.Spacing.sm) {
                 ForEach(recentActivity) { node in
+                    let itemID = "recent-\(node.id.uuidString)"
                     SpatialRecentCard(node: node, selectedNode: $selectedNode)
+                        .focusRing(isFocused: focusedItemID == itemID)
                 }
             }
         }
