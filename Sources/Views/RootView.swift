@@ -167,6 +167,11 @@ struct RootView: View {
         }
         .toast(manager: toastManager)
         .environment(\.toastManager, toastManager)
+        .background {
+            Button("") { duplicateSelectedNode() }
+                .keyboardShortcut("d", modifiers: .command)
+                .opacity(0)
+        }
     }
 
     private var normalView: some View {
@@ -329,6 +334,22 @@ struct RootView: View {
         .toolbarRole(.automatic)
         .toast(manager: toastManager)
         .environment(\.toastManager, toastManager)
+        .background {
+            // Global keyboard shortcut: duplicate selected node
+            Button("") { duplicateSelectedNode() }
+                .keyboardShortcut("d", modifiers: .command)
+                .opacity(0)
+        }
+    }
+
+    // MARK: - Duplicate Node
+
+    private func duplicateSelectedNode() {
+        guard let node = selectedNode else { return }
+        if let copy = try? store.duplicateNode(id: node.id) {
+            selectedNode = copy
+            toastManager.show("Duplicated \"\(node.title)\"", icon: "doc.on.doc")
+        }
     }
 
     // MARK: - Focus Mode

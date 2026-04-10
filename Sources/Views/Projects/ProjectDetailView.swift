@@ -1,1281 +1,251 @@
 import SwiftUI
 
-/// Card dashboard for a single project.
-/// Wiki-inspired: each project is a living knowledge page.
-/// Cards are interlinked, provenance is visible, knowledge compounds over time.
-/// Inspired by Karpathy's LLM Wiki — the project IS the persistent artifact.
+/// Detail view for a single project — the workspace for one thing.
 struct ProjectDetailView: View {
     @Environment(NodeStore.self) private var store
     let project: MindNode
     @Binding var selectedNode: MindNode?
-    @State private var newTaskText = ""
-    @State private var newNoteText = ""
-    @State private var showConnections = false
-    @State private var editingTitle = ""
-    @State private var isEditingTitle = false
-    @State private var editingBody = ""
-    @State private var isEditingBody = false
 
-    // MARK: - Derived Data
+    @State private var title: String
+    @State private var bodyText: String
+
+    init(project: MindNode, selectedNode: Binding<MindNode?>) {
+        self.project = project
+        self._selectedNode = selectedNode
+        _title = State(initialValue: project.title)
+        _bodyText = State(initialValue: project.body)
+    }
 
     private var tasks: [MindNode] {
         store.children(of: project.id, linkType: .belongsTo).filter { $0.type == .task }
     }
-    private var openTasks: [MindNode] {
-        tasks.filter { $0.status != .completed }
-            .sorted { $0.relevance > $1.relevance }
-    }
+
     private var completedTasks: [MindNode] {
         tasks.filter { $0.status == .completed }
     }
+
     private var notes: [MindNode] {
-        store.children(of: project.id, linkType: .belongsTo)
-            .filter { $0.type == .note }
-            .sorted { $0.updatedAt > $1.updatedAt }
+        store.children(of: project.id, linkType: .belongsTo).filter { $0.type == .note }
     }
-    private var people: [MindNode] {
-        store.children(of: project.id, linkType: .belongsTo).filter { $0.type == .person }
-    }
-    private var events: [MindNode] {
-        store.children(of: project.id, linkType: .belongsTo)
-            .filter { $0.type == .event }
-            .sorted { ($0.dueDate ?? .distantFuture) < ($1.dueDate ?? .distantFuture) }
-    }
-    private var sources: [MindNode] {
-        store.children(of: project.id, linkType: .fromSource)
-    }
-    private var allConnected: [MindNode] {
+
+    private var connections: [MindNode] {
         store.connectedNodes(for: project.id)
     }
-    private var recentActivity: [MindNode] {
-        // Recent notes + tasks for this project (updated in last 14 days)
-        let cutoff = Date.now.addingTimeInterval(-14 * 86400)
-        return (notes + tasks)
-            .filter { $0.updatedAt > cutoff }
-            .sorted { $0.updatedAt > $1.updatedAt }
-            .prefix(6)
-            .map { $0 }
-    }
-
-    /// Auto-discovered: nodes that mention the project title but aren't linked yet.
-    /// This is the "living workspace" — the project finds related content on its own.
-    private var discoveredNodes: [MindNode] {
-        let linkedIDs = Set(allConnected.map(\.id) + [project.id])
-        let terms = project.title.lowercased().split(separator: " ").filter { $0.count > 2 }
-        guard !terms.isEmpty else { return [] }
-
-        return store.nodes.values
-            .filter { node in
-                guard !linkedIDs.contains(node.id) else { return false }
-                let text = (node.title + " " + node.body).lowercased()
-                return terms.contains { text.contains($0) }
-            }
-            .sorted { $0.relevance > $1.relevance }
-            .prefix(5)
-            .map { $0 }
-    }
-
-    // MARK: - Watched Folder
-
-    /// Path of the watched folder for this project (stored in metadata).
-    private var watchedFolderPath: String? {
-        project.metadata["watchedFolder"]
-    }
-
-    /// Files found in the watched folder.
-    private var watchedFiles: [FileIngestor.FileInfo] {
-        guard let path = watchedFolderPath else { return [] }
-        let expanded = NSString(string: path).expandingTildeInPath
-        guard FileManager.default.fileExists(atPath: expanded) else { return [] }
-
-        let result = FileIngestor.scan(
-            paths: [(expanded, "watched")],
-            maxDepth: 2,
-            maxFiles: 50
-        )
-        return result.files.sorted { $0.modified > $1.modified }
-    }
-
-    /// Watched files that are already imported as nodes (by path metadata).
-    private var importedWatchedPaths: Set<String> {
-        Set(store.nodes.values.compactMap { $0.metadata["path"] })
-    }
-
-    /// New files in watched folder not yet imported.
-    private var newWatchedFiles: [FileIngestor.FileInfo] {
-        watchedFiles.filter { !importedWatchedPaths.contains($0.path) }
-    }
-
-    // MARK: - Body
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Theme.Spacing.xl) {
-                // Overview card — always at top
-                overviewCard
+                // Project header
+                projectHeader
 
-                // Wiki synthesis — the "living knowledge" card
-                // Shows what this project knows, not just what it contains
-                synthesisCard
-
-                // Connections mini-graph
-                connectionsCard
-
-                // Dashboard grid: two columns on wider screens
-                AdaptiveCardGrid {
-                    // Tasks card
-                    if !tasks.isEmpty {
-                        tasksCard
-                    }
-
-                    // Notes card
-                    notesCard
-
-                    // Activity card
-                    if !recentActivity.isEmpty {
-                        activityCard
-                    }
-
-                    // People card
-                    if !people.isEmpty {
-                        peopleCard
-                    }
-
-                    // Events card
-                    if !events.isEmpty {
-                        eventsCard
-                    }
-
-                    // Sources card
-                    if !sources.isEmpty {
-                        sourcesCard
-                    }
-
-                    // Auto-discovered card — content that mentions this project
-                    if !discoveredNodes.isEmpty {
-                        discoveredCard
-                    }
-
-                    // Watched folder card
-                    watchedFolderCard
-
-                    // Quick add card
-                    quickAddCard
-                }
-            }
-            .padding(Theme.Spacing.lg)
-        }
-        .navigationTitle(project.title)
-    }
-
-    // MARK: - Overview Card (wiki-style hero)
-
-    private var overviewCard: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Accent gradient bar at top — like a wiki page header
-            LinearGradient(
-                colors: [Theme.Colors.accent.opacity(0.3), Theme.Colors.accent.opacity(0.05)],
-                startPoint: .leading,
-                endPoint: .trailing
-            )
-            .frame(height: 3)
-            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.cardLarge))
-
-            VStack(alignment: .leading, spacing: Theme.Spacing.md) {
-                // Title row
-                HStack(alignment: .top, spacing: Theme.Spacing.sm) {
-                    Image(systemName: "folder.fill")
-                        .font(.system(size: 22))
-                        .foregroundStyle(Theme.Colors.typeColor(.project))
-                        .padding(.top, 2)
-
-                    VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
-                        if isEditingTitle {
-                            TextField("Project title", text: $editingTitle, onCommit: saveTitle)
-                                .font(.system(size: 26, weight: .bold, design: .default))
-                                .textFieldStyle(.plain)
-                                .onExitCommand { isEditingTitle = false }
-                        } else {
-                            Text(project.title)
-                                .font(.system(size: 26, weight: .bold, design: .default))
-                                .lineLimit(2)
-                                .onTapGesture(count: 2) {
-                                    editingTitle = project.title
-                                    isEditingTitle = true
-                                }
-                        }
-
-                        // Subtitle: status + confidence + last access
-                        HStack(spacing: Theme.Spacing.sm) {
-                            // Clickable status pill — cycles through statuses
-                            Menu {
-                                ForEach([NodeStatus.active, .completed, .archived, .draft, .waiting], id: \.self) { status in
-                                    Button { setStatus(status) } label: {
-                                        HStack {
-                                            Text(status.rawValue.capitalized)
-                                            if project.status == status { Image(systemName: "checkmark") }
-                                        }
-                                    }
-                                }
-                            } label: {
-                                Text(project.status.rawValue.capitalized)
-                                    .font(Theme.Fonts.caption)
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 3)
-                                    .background(statusColor.opacity(0.12), in: Capsule())
-                                    .foregroundStyle(statusColor)
-                            }
-                            .menuStyle(.borderlessButton)
-
-                            ConfidenceBadge(value: project.confidence)
-
-                            Text("·")
-                                .foregroundStyle(.tertiary)
-
-                            Text("Accessed \(project.lastAccessedAt, style: .relative)")
-                                .font(Theme.Fonts.caption)
-                                .foregroundStyle(.tertiary)
-                        }
-                    }
-
-                    Spacer()
-
-                    // Pin toggle
-                    Button {
-                        var updated = project
-                        updated.pinned.toggle()
-                        updated.updatedAt = .now
-                        try? store.insertNode(updated)
-                    } label: {
-                        Image(systemName: project.pinned ? "pin.fill" : "pin")
-                            .font(.caption)
-                            .foregroundStyle(project.pinned ? AnyShapeStyle(.orange) : AnyShapeStyle(.tertiary))
-                    }
-                    .buttonStyle(.plain)
-                    .help(project.pinned ? "Unpin" : "Pin to Today")
-                }
-
-                // Description
-                if !project.body.isEmpty {
-                    Text(project.body)
-                        .font(Theme.Fonts.body)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(4)
-                }
-
-                // Progress bar (full width)
+                // Tasks card
                 if !tasks.isEmpty {
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Text("\(completedTasks.count)/\(tasks.count) tasks")
-                                .font(Theme.Fonts.caption)
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                            Text("\(Int(Double(completedTasks.count) / Double(tasks.count) * 100))%")
-                                .font(Theme.Fonts.caption.monospaced())
-                                .foregroundStyle(.secondary)
-                        }
-                        GeometryReader { geo in
-                            ZStack(alignment: .leading) {
-                                Capsule().fill(.quaternary)
-                                Capsule()
-                                    .fill(completedTasks.count == tasks.count ? .green : Theme.Colors.accent.opacity(0.6))
-                                    .frame(width: geo.size.width * progress)
-                            }
-                        }
-                        .frame(height: 6)
-                    }
+                    tasksCard
                 }
 
-                // Stats row
-                HStack(spacing: Theme.Spacing.lg) {
-                    statLabel("\(allConnected.count)", icon: "link", label: "connected")
-                    statLabel("\(tasks.count)", icon: "checklist", label: "tasks")
-                    statLabel("\(notes.count)", icon: "note.text", label: "notes")
-                    statLabel("\(sources.count)", icon: "link", label: "sources")
+                // Notes card
+                if !notes.isEmpty {
+                    notesCard
+                }
 
-                    Spacer()
+                // Milestones
+                milestonesCard
 
-                    Text("Updated \(project.updatedAt, style: .relative)")
+                // Connections summary
+                if !connections.isEmpty {
+                    connectionsCard
+                }
+            }
+            .padding(Theme.Spacing.xxl)
+        }
+        .background(Theme.Colors.windowBackground)
+    }
+
+    // MARK: - Header
+
+    private var projectHeader: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.md) {
+            HStack(alignment: .top, spacing: Theme.Spacing.md) {
+                Image(systemName: "folder.fill")
+                    .font(.system(size: 28))
+                    .foregroundStyle(Theme.Colors.typeColor(.project))
+                    .padding(.top, 2)
+
+                VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+                    TextField("Project title", text: $title, axis: .vertical)
+                        .font(.system(size: 28, weight: .bold, design: .default))
+                        .textFieldStyle(.plain)
+                        .lineLimit(1...3)
+                        .onChange(of: title) { _, _ in saveProject() }
+
+                    TextField("Add a description...", text: $bodyText, axis: .vertical)
+                        .font(Theme.Fonts.body)
+                        .textFieldStyle(.plain)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1...5)
+                        .onChange(of: bodyText) { _, _ in saveProject() }
+                }
+
+                Spacer()
+
+                if project.pinned {
+                    Image(systemName: "pin.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+            }
+
+            // Progress
+            if !tasks.isEmpty {
+                HStack(spacing: Theme.Spacing.md) {
+                    ProgressView(value: Double(completedTasks.count), total: Double(tasks.count))
+                        .frame(width: 80)
+                        .tint(Theme.Colors.accent)
+                    Text("\(completedTasks.count)/\(tasks.count) tasks done")
                         .font(Theme.Fonts.caption)
-                        .foregroundStyle(.tertiary)
-                }
-            }
-            .padding(Theme.Spacing.lg)
-        }
-        .background(
-            RoundedRectangle(cornerRadius: Theme.Radius.cardLarge)
-                .fill(Color(NSColor.controlBackgroundColor))
-        )
-        .shadow(color: Theme.Shadow.hero.color, radius: Theme.Shadow.hero.radius, y: Theme.Shadow.hero.y)
-        .overlay(
-            RoundedRectangle(cornerRadius: Theme.Radius.cardLarge)
-                .strokeBorder(Theme.Colors.accent.opacity(0.08), lineWidth: 0.5)
-        )
-    }
-
-    private var progress: Double {
-        guard !tasks.isEmpty else { return 0 }
-        return Double(completedTasks.count) / Double(tasks.count)
-    }
-
-    private var statusColor: Color {
-        switch project.status {
-        case .active: .green
-        case .completed: .blue
-        case .archived: .secondary
-        case .draft: .orange
-        case .waiting: .yellow
-        }
-    }
-
-    private func statLabel(_ value: String, icon: String, label: String) -> some View {
-        HStack(spacing: 4) {
-            Image(systemName: icon)
-                .font(.system(size: 10))
-                .foregroundStyle(.tertiary)
-            Text(value)
-                .font(Theme.Fonts.caption)
-                .foregroundStyle(.secondary)
-            Text(label)
-                .font(Theme.Fonts.caption)
-                .foregroundStyle(.tertiary)
-        }
-    }
-
-    // MARK: - Synthesis Card (wiki-inspired — what this project KNOWS)
-
-    private var synthesisCard: some View {
-        let allContent = notes + tasks + people + events
-        let totalWords = allContent.reduce(0) { count, node in
-            count + node.title.count + node.body.count
-        }
-        let types = Set(allContent.map { $0.type })
-
-        return VStack(alignment: .leading, spacing: Theme.Spacing.md) {
-            HStack(spacing: Theme.Spacing.sm) {
-                Image(systemName: "brain")
-                    .font(.system(size: 14))
-                    .foregroundStyle(Theme.Colors.accent)
-                Text("Knowledge Synthesis")
-                    .font(Theme.Fonts.sectionTitle)
-                Spacer()
-                Text("\(allContent.count) nodes · ~\(totalWords) chars")
-                    .font(Theme.Fonts.tiny)
-                    .foregroundStyle(.tertiary)
-            }
-
-            // What this project covers — type distribution as a visual bar
-            if !types.isEmpty {
-                HStack(spacing: 2) {
-                    ForEach(Array(types).sorted { $0.rawValue < $1.rawValue }, id: \.self) { type in
-                        let count = allContent.filter { $0.type == type }.count
-                        let ratio = Double(count) / Double(allContent.count)
-                        if ratio > 0 {
-                            RoundedRectangle(cornerRadius: 2)
-                                .fill(Theme.Colors.typeColor(type).opacity(0.6))
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 6)
-                                .overlay(alignment: .center) {
-                                    if ratio > 0.15 {
-                                        Text(type.rawValue.prefix(1).uppercased())
-                                            .font(.system(size: 7, weight: .bold, design: .rounded))
-                                            .foregroundStyle(.white.opacity(0.8))
-                                    }
-                                }
-                        }
-                    }
-                }
-                .frame(height: 6)
-            }
-
-            // Key entities — what names/concepts appear across this project
-            if !project.body.isEmpty {
-                Text(project.body)
-                    .font(Theme.Fonts.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(3)
-            }
-
-            // Provenance: when was knowledge last added?
-            if let newest = allContent.max(by: { $0.updatedAt < $1.updatedAt }) {
-                HStack(spacing: 4) {
-                    Image(systemName: "arrow.triangle.2.circlepath")
-                        .font(.system(size: 9))
-                        .foregroundStyle(.tertiary)
-                    Text("Last updated \(newest.updatedAt, style: .relative) · \(newest.title)")
-                        .font(Theme.Fonts.tiny)
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(1)
+                        .foregroundStyle(.secondary)
+                    Spacer()
                 }
             }
         }
-        .padding(Theme.Spacing.lg)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .spatialCard(shadow: Theme.Shadow.card)
-    }
-
-    // MARK: - Connections Card (mini-graph with Canvas visualization)
-
-    private var connectionsCard: some View {
-        let connected = allConnected
-        let byType = Dictionary(grouping: connected) { $0.type }
-
-        return VStack(alignment: .leading, spacing: Theme.Spacing.md) {
-            HStack(spacing: Theme.Spacing.sm) {
-                Image(systemName: "point.3.filled.connected.trianglepath.dotted")
-                    .font(.system(size: 13))
-                    .foregroundStyle(Theme.Colors.accent)
-                Text("Connections")
-                    .font(Theme.Fonts.sectionTitle)
-                Spacer()
-                Text("\(connected.count)")
-                    .font(Theme.Fonts.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(.quaternary, in: Capsule())
-                Button(showConnections ? "Collapse" : "Expand") {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                        showConnections.toggle()
-                    }
-                }
-                .font(Theme.Fonts.tiny)
-                .buttonStyle(.plain)
-                .foregroundStyle(Theme.Colors.accent)
-            }
-
-            // Type distribution dots — quick visual
-            HStack(spacing: Theme.Spacing.md) {
-                ForEach(NodeType.allCases, id: \.self) { type in
-                    let nodes = byType[type] ?? []
-                    if !nodes.isEmpty {
-                        HStack(spacing: 3) {
-                            Circle()
-                                .fill(Theme.Colors.typeColor(type))
-                                .frame(width: 8, height: 8)
-                            Text("\(nodes.count)")
-                                .font(Theme.Fonts.tiny)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-                Spacer()
-            }
-
-            // Mini graph canvas — visual map of connections
-            if !connected.isEmpty {
-                miniGraphCanvas(nodes: connected)
-            }
-
-            if showConnections {
-                Divider()
-                // Connection list
-                ForEach(connected.prefix(8)) { node in
-                    HStack(spacing: Theme.Spacing.sm) {
-                        Image(systemName: node.type.sfIcon)
-                            .font(.system(size: 11))
-                            .foregroundStyle(Theme.Colors.typeColor(node.type))
-                            .frame(width: 14)
-                        Text(node.title)
-                            .font(Theme.Fonts.caption)
-                            .lineLimit(1)
-                        Spacer()
-                        Text(node.type.rawValue)
-                            .font(Theme.Fonts.tiny)
-                            .foregroundStyle(.tertiary)
-                    }
-                    .padding(.vertical, 1)
-                    .contentShape(Rectangle())
-                    .onTapGesture { selectedNode = node }
-                }
-                if connected.count > 8 {
-                    Text("+ \(connected.count - 8) more")
-                        .font(Theme.Fonts.tiny)
-                        .foregroundStyle(.tertiary)
-                }
-            }
-        }
-        .padding(Theme.Spacing.lg)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .spatialCard(shadow: Theme.Shadow.card)
-    }
-
-    // MARK: - Mini Graph Canvas
-
-    /// Visual graph of connected nodes — project in center, connections orbit around it.
-    /// Lines show links between connected nodes that share their own connections.
-    /// Inspired by gbrain's graph traversal and Obsidian's local graph.
-    private func miniGraphCanvas(nodes connected: [MindNode]) -> some View {
-        // Pre-compute link pairs between connected nodes (not just to project)
-        let connectedIDs = Set(connected.map(\.id))
-        let interLinks: [(UUID, UUID)] = store.links.values.compactMap { link in
-            guard connectedIDs.contains(link.sourceID),
-                  connectedIDs.contains(link.targetID),
-                  link.sourceID != link.targetID else { return nil }
-            return (link.sourceID, link.targetID)
-        }
-
-        return Canvas { context, size in
-            let center = CGPoint(x: size.width / 2, y: size.height / 2)
-            let maxRadius = min(size.width, size.height) / 2 - 20
-            let count = connected.count
-
-            // Draw inter-connection lines (between connected nodes)
-            for (a, b) in interLinks {
-                let angleA = angleFor(nodeID: a, in: connected, index: count)
-                let angleB = angleFor(nodeID: b, in: connected, index: count)
-                let posA = CGPoint(
-                    x: center.x + cos(angleA) * maxRadius * 0.7,
-                    y: center.y + sin(angleA) * maxRadius * 0.7
-                )
-                let posB = CGPoint(
-                    x: center.x + cos(angleB) * maxRadius * 0.7,
-                    y: center.y + sin(angleB) * maxRadius * 0.7
-                )
-                var line = Path()
-                line.move(to: posA)
-                line.addLine(to: posB)
-                context.stroke(line, with: .color(.secondary.opacity(0.1)), lineWidth: 0.5)
-            }
-
-            // Draw lines from center to each connected node
-            for (i, node) in connected.enumerated() {
-                let angle = (2 * .pi * Double(i)) / Double(max(count, 1)) - .pi / 2
-                let distance = maxRadius * 0.7
-                let pos = CGPoint(
-                    x: center.x + cos(angle) * distance,
-                    y: center.y + sin(angle) * distance
-                )
-                var line = Path()
-                line.move(to: center)
-                line.addLine(to: pos)
-                context.stroke(
-                    line,
-                    with: .color(Theme.Colors.typeColor(node.type).opacity(0.25)),
-                    lineWidth: 1
-                )
-            }
-
-            // Draw project node (center) — larger, with accent glow
-            let projectRadius: CGFloat = 12
-            let glowRect = CGRect(
-                x: center.x - projectRadius - 6,
-                y: center.y - projectRadius - 6,
-                width: (projectRadius + 6) * 2,
-                height: (projectRadius + 6) * 2
-            )
-            context.fill(
-                Path(ellipseIn: glowRect),
-                with: .color(Theme.Colors.typeColor(.project).opacity(0.12))
-            )
-            let projectRect = CGRect(
-                x: center.x - projectRadius,
-                y: center.y - projectRadius,
-                width: projectRadius * 2,
-                height: projectRadius * 2
-            )
-            context.fill(
-                Path(ellipseIn: projectRect),
-                with: .color(Theme.Colors.typeColor(.project))
-            )
-            context.stroke(
-                Path(ellipseIn: projectRect),
-                with: .color(Theme.Colors.typeColor(.project).opacity(0.6)),
-                lineWidth: 1
-            )
-
-            // Draw connected nodes as colored dots
-            for (i, node) in connected.enumerated() {
-                let angle = (2 * .pi * Double(i)) / Double(max(count, 1)) - .pi / 2
-                let distance = maxRadius * 0.7
-                let pos = CGPoint(
-                    x: center.x + cos(angle) * distance,
-                    y: center.y + sin(angle) * distance
-                )
-                let nodeRadius: CGFloat = 4 + CGFloat(node.relevance) * 5  // 4...9 based on relevance
-                let color = Theme.Colors.typeColor(node.type)
-
-                // Glow for high relevance
-                if node.relevance > 0.6 {
-                    let glow = CGRect(
-                        x: pos.x - nodeRadius - 3,
-                        y: pos.y - nodeRadius - 3,
-                        width: (nodeRadius + 3) * 2,
-                        height: (nodeRadius + 3) * 2
-                    )
-                    context.fill(
-                        Path(ellipseIn: glow),
-                        with: .color(color.opacity(0.15))
-                    )
-                }
-
-                let dotRect = CGRect(
-                    x: pos.x - nodeRadius,
-                    y: pos.y - nodeRadius,
-                    width: nodeRadius * 2,
-                    height: nodeRadius * 2
-                )
-                context.fill(
-                    Path(ellipseIn: dotRect),
-                    with: .color(color.opacity(0.8))
-                )
-                context.stroke(
-                    Path(ellipseIn: dotRect),
-                    with: .color(color.opacity(0.4)),
-                    lineWidth: 0.5
-                )
-
-                // Label for nodes when count <= 12
-                if count <= 12 {
-                    let labelPos = CGPoint(
-                        x: pos.x,
-                        y: pos.y + nodeRadius + 6
-                    )
-                    let label = context.resolve(
-                        Text(node.title.count > 14 ? String(node.title.prefix(12)) + "…" : node.title)
-                            .font(.system(size: 8, weight: .medium))
-                    )
-                    context.draw(label, at: labelPos, anchor: .top)
-                }
-            }
-        }
-        .frame(height: connected.count <= 6 ? 140 : 180)
-        .background(
-            RoundedRectangle(cornerRadius: Theme.Radius.chip)
-                .fill(Color(NSColor.controlBackgroundColor).opacity(0.3))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: Theme.Radius.chip)
-                .strokeBorder(Color.primary.opacity(0.04), lineWidth: 0.5)
-        )
-        .contentShape(Rectangle())
-        .onTapGesture(count: 2) {
-            // Double-click on empty area selects the project
-            selectedNode = project
-        }
-    }
-
-    /// Deterministic angle for a node ID in the graph (stable across redraws).
-    private func angleFor(nodeID: UUID, in nodes: [MindNode], index count: Int) -> Double {
-        guard let i = nodes.firstIndex(where: { $0.id == nodeID }) else { return 0 }
-        return (2 * .pi * Double(i)) / Double(max(count, 1)) - .pi / 2
+        .padding(Theme.Spacing.xl)
+        .spatialCard(shadow: Theme.Shadow.hero, radius: Theme.Radius.cardLarge)
     }
 
     // MARK: - Tasks Card
 
     private var tasksCard: some View {
-        DashboardCard(title: "Tasks", icon: "checklist", count: tasks.count) {
+        VStack(alignment: .leading, spacing: Theme.Spacing.md) {
+            Text("Tasks")
+                .font(Theme.Fonts.sectionTitle)
+
             VStack(spacing: 1) {
-                // Show open tasks first, then up to 3 completed
-                let displayTasks = openTasks + completedTasks.prefix(3)
-                ForEach(displayTasks) { task in
-                    taskRow(task)
-                }
+                ForEach(tasks) { task in
+                    HStack(spacing: Theme.Spacing.sm) {
+                        Button {
+                            var updated = task
+                            updated.status = updated.status == .completed ? .active : .completed
+                            updated.updatedAt = .now
+                            try? store.insertNode(updated)
+                        } label: {
+                            Image(systemName: task.status == .completed ? "checkmark.circle.fill" : "circle")
+                                .font(.system(size: 14))
+                                .foregroundStyle(task.status == .completed ? .green : .secondary.opacity(0.6))
+                        }
+                        .buttonStyle(.plain)
 
-                if completedTasks.count > 3 {
-                    Text("+ \(completedTasks.count - 3) more completed")
-                        .font(Theme.Fonts.caption)
-                        .foregroundStyle(.tertiary)
-                        .padding(.top, 4)
-                }
+                        Text(task.title)
+                            .font(Theme.Fonts.body)
+                            .strikethrough(task.status == .completed)
+                            .lineLimit(1)
 
-                // Inline quick add
-                Divider().padding(.vertical, Theme.Spacing.xs)
-                HStack(spacing: Theme.Spacing.sm) {
-                    Image(systemName: "plus.circle")
-                        .font(.system(size: 13))
-                        .foregroundStyle(Theme.Colors.accent)
-                    TextField("Add task...", text: $newTaskText)
-                        .font(Theme.Fonts.body)
-                        .textFieldStyle(.plain)
-                        .onSubmit { addQuickTask() }
+                        Spacer()
+
+                        if let due = task.dueDate {
+                            Text(due, style: .relative)
+                                .font(Theme.Fonts.tiny)
+                                .foregroundStyle(due < Date() ? AnyShapeStyle(.red) : AnyShapeStyle(.tertiary))
+                        }
+                    }
+                    .padding(.horizontal, Theme.Spacing.sm)
+                    .padding(.vertical, 4)
+                    .contentShape(Rectangle())
+                    .onTapGesture { selectedNode = task }
                 }
-                .padding(.vertical, 2)
             }
         }
-    }
-
-    private func taskRow(_ task: MindNode) -> some View {
-        HStack(spacing: Theme.Spacing.sm) {
-            Button { toggleTask(task) } label: {
-                Image(systemName: task.status == .completed ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 14))
-                    .foregroundStyle(task.status == .completed ? .green : .secondary)
-            }
-            .buttonStyle(.plain)
-
-            Text(task.title)
-                .font(Theme.Fonts.body)
-                .lineLimit(1)
-                .strikethrough(task.status == .completed)
-                .foregroundStyle(task.status == .completed ? .secondary : .primary)
-
-            Spacer()
-
-            if let due = task.dueDate {
-                Text(due, style: .relative)
-                    .font(Theme.Fonts.caption)
-                    .foregroundStyle(due < Date() ? AnyShapeStyle(.red) : AnyShapeStyle(.tertiary))
-            }
-
-            Circle()
-                .fill(Theme.Colors.relevance(task.relevance))
-                .frame(width: 5, height: 5)
-        }
-        .padding(.horizontal, Theme.Spacing.sm)
-        .padding(.vertical, 5)
-        .contentShape(Rectangle())
-        .onTapGesture { selectedNode = task }
+        .padding(Theme.Spacing.lg)
+        .spatialCard()
     }
 
     // MARK: - Notes Card
 
     private var notesCard: some View {
-        DashboardCard(title: "Notes", icon: "note.text", count: notes.count) {
-            VStack(spacing: Theme.Spacing.xs) {
-                if notes.isEmpty {
-                    Text("No notes yet")
-                        .font(Theme.Fonts.caption)
-                        .foregroundStyle(.tertiary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                } else {
-                    ForEach(notes.prefix(5)) { note in
-                        HStack(spacing: Theme.Spacing.sm) {
-                            Image(systemName: "note.text")
-                                .font(.system(size: 11))
-                                .foregroundStyle(Theme.Colors.typeColor(.note))
-                                .frame(width: 14)
+        VStack(alignment: .leading, spacing: Theme.Spacing.md) {
+            Text("Notes")
+                .font(Theme.Fonts.sectionTitle)
 
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(note.title)
-                                    .font(Theme.Fonts.body)
-                                    .lineLimit(1)
-                                if !note.body.isEmpty {
-                                    Text(note.body)
-                                        .font(Theme.Fonts.caption)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(2)
-                                }
-                            }
-
-                            Spacer()
-
-                            Text(note.updatedAt, style: .relative)
-                                .font(Theme.Fonts.caption)
-                                .foregroundStyle(.tertiary)
-                        }
-                        .padding(.vertical, 2)
-                        .contentShape(Rectangle())
-                        .onTapGesture { selectedNode = note }
-                    }
-
-                    if notes.count > 5 {
-                        Text("+ \(notes.count - 5) more")
-                            .font(Theme.Fonts.caption)
-                            .foregroundStyle(.tertiary)
-                    }
-                }
-
-                // Inline quick add
-                Divider().padding(.vertical, Theme.Spacing.xs)
+            ForEach(notes.prefix(5)) { note in
                 HStack(spacing: Theme.Spacing.sm) {
-                    Image(systemName: "plus.circle")
-                        .font(.system(size: 13))
-                        .foregroundStyle(Theme.Colors.accent)
-                    TextField("Add note...", text: $newNoteText)
+                    Image(systemName: "doc.text")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.Colors.typeColor(.note))
+                    Text(note.title)
                         .font(Theme.Fonts.body)
-                        .textFieldStyle(.plain)
-                        .onSubmit { addQuickNote() }
+                        .lineLimit(1)
+                    Spacer()
                 }
                 .padding(.vertical, 2)
+                .contentShape(Rectangle())
+                .onTapGesture { selectedNode = note }
             }
-        }
-    }
-
-    // MARK: - Activity Card
-
-    private var activityCard: some View {
-        DashboardCard(title: "Recent Activity", icon: "clock", count: recentActivity.count) {
-            VStack(spacing: Theme.Spacing.xs) {
-                ForEach(recentActivity) { node in
-                    HStack(spacing: Theme.Spacing.sm) {
-                        Image(systemName: node.type.sfIcon)
-                            .font(.system(size: 12))
-                            .foregroundStyle(Theme.Colors.typeColor(node.type))
-                            .frame(width: 16)
-
-                        Text(node.title)
-                            .font(Theme.Fonts.body)
-                            .lineLimit(1)
-
-                        Spacer()
-
-                        Text(node.updatedAt, style: .relative)
-                            .font(Theme.Fonts.caption)
-                            .foregroundStyle(.tertiary)
-                    }
-                    .padding(.vertical, 3)
-                    .contentShape(Rectangle())
-                    .onTapGesture { selectedNode = node }
-                }
-            }
-        }
-    }
-
-    // MARK: - People Card
-
-    private var peopleCard: some View {
-        DashboardCard(title: "People", icon: "person.2", count: people.count) {
-            VStack(spacing: Theme.Spacing.xs) {
-                ForEach(people) { person in
-                    HStack(spacing: Theme.Spacing.sm) {
-                        Image(systemName: "person.circle.fill")
-                            .font(.system(size: 16))
-                            .foregroundStyle(Theme.Colors.typeColor(.person))
-
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(person.title)
-                                .font(Theme.Fonts.body)
-                                .lineLimit(1)
-                            if !person.body.isEmpty {
-                                Text(person.body)
-                                    .font(Theme.Fonts.caption)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                            }
-                        }
-
-                        Spacer()
-                    }
-                    .padding(.vertical, 3)
-                    .contentShape(Rectangle())
-                    .onTapGesture { selectedNode = person }
-                }
-            }
-        }
-    }
-
-    // MARK: - Events Card
-
-    private var eventsCard: some View {
-        DashboardCard(title: "Events", icon: "calendar", count: events.count) {
-            VStack(spacing: Theme.Spacing.xs) {
-                ForEach(events) { event in
-                    HStack(spacing: Theme.Spacing.sm) {
-                        Image(systemName: "calendar")
-                            .font(.system(size: 12))
-                            .foregroundStyle(Theme.Colors.typeColor(.event))
-
-                        Text(event.title)
-                            .font(Theme.Fonts.body)
-                            .lineLimit(1)
-
-                        Spacer()
-
-                        if let due = event.dueDate {
-                            Text(due, style: .relative)
-                                .font(Theme.Fonts.caption)
-                                .foregroundStyle(due < Date() ? AnyShapeStyle(.red) : AnyShapeStyle(.tertiary))
-                        }
-                    }
-                    .padding(.vertical, 3)
-                    .contentShape(Rectangle())
-                    .onTapGesture { selectedNode = event }
-                }
-            }
-        }
-    }
-
-    // MARK: - Sources Card
-
-    private var sourcesCard: some View {
-        DashboardCard(title: "Sources", icon: "link", count: sources.count) {
-            VStack(spacing: Theme.Spacing.xs) {
-                ForEach(sources) { source in
-                    HStack(spacing: Theme.Spacing.sm) {
-                        Image(systemName: "link")
-                            .font(.system(size: 12))
-                            .foregroundStyle(Theme.Colors.typeColor(.source))
-
-                        Text(source.title)
-                            .font(Theme.Fonts.body)
-                            .lineLimit(1)
-
-                        Spacer()
-
-                        ConfidenceBadge(value: source.confidence)
-                    }
-                    .padding(.vertical, 3)
-                    .contentShape(Rectangle())
-                    .onTapGesture { selectedNode = source }
-                }
-            }
-        }
-    }
-
-    // MARK: - Discovered Card (auto-related content)
-
-    private var discoveredCard: some View {
-        DashboardCard(title: "Related", icon: "sparkles", count: discoveredNodes.count) {
-            VStack(spacing: Theme.Spacing.xs) {
-                Text("Mentions \"\(project.title)\" but not yet linked")
-                    .font(Theme.Fonts.caption)
-                    .foregroundStyle(.tertiary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                ForEach(discoveredNodes) { node in
-                    HStack(spacing: Theme.Spacing.sm) {
-                        Image(systemName: node.type.sfIcon)
-                            .font(.system(size: 12))
-                            .foregroundStyle(Theme.Colors.typeColor(node.type))
-                            .frame(width: 16)
-
-                        Text(node.title)
-                            .font(Theme.Fonts.body)
-                            .lineLimit(1)
-
-                        Spacer()
-
-                        // One-click link button
-                        Button { linkNode(node) } label: {
-                            Image(systemName: "link.badge.plus")
-                                .font(.system(size: 11))
-                                .foregroundStyle(Theme.Colors.accent)
-                        }
-                        .buttonStyle(.plain)
-                        .help("Link to project")
-                    }
-                    .padding(.vertical, 3)
-                    .contentShape(Rectangle())
-                    .onTapGesture { selectedNode = node }
-                }
-            }
-        }
-    }
-
-    // MARK: - Watched Folder Card
-
-    private var watchedFolderCard: some View {
-        DashboardCard(
-            title: watchedFolderPath != nil ? "Watched Folder" : "Watch Folder",
-            icon: "eye",
-            count: watchedFiles.count,
-            showCount: watchedFolderPath != nil
-        ) {
-            if let folderPath = watchedFolderPath {
-                // Folder is set — show files
-                VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
-                    // Path with change button
-                    HStack(spacing: 4) {
-                        Image(systemName: "folder")
-                            .font(.system(size: 10))
-                            .foregroundStyle(.tertiary)
-                        Text((folderPath as NSString).lastPathComponent)
-                            .font(Theme.Fonts.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                        Spacer()
-                        Button("Change") { selectWatchedFolder() }
-                            .font(Theme.Fonts.caption)
-                            .buttonStyle(.plain)
-                            .foregroundStyle(Theme.Colors.accent)
-                    }
-
-                    // New files (not yet imported)
-                    if !newWatchedFiles.isEmpty {
-                        Text("\(newWatchedFiles.count) new files")
-                            .font(Theme.Fonts.tiny)
-                            .foregroundStyle(Theme.Colors.accent)
-                            .padding(.top, 2)
-
-                        ForEach(newWatchedFiles.prefix(5)) { file in
-                            HStack(spacing: Theme.Spacing.sm) {
-                                Image(systemName: iconForExt(file.ext))
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(.secondary)
-                                    .frame(width: 14)
-                                Text(file.name)
-                                    .font(Theme.Fonts.body)
-                                    .lineLimit(1)
-                                Spacer()
-                                Button { importFile(file) } label: {
-                                    Image(systemName: "arrow.down.circle")
-                                        .font(.system(size: 11))
-                                        .foregroundStyle(Theme.Colors.accent)
-                                }
-                                .buttonStyle(.plain)
-                                .help("Import to project")
-                            }
-                            .padding(.vertical, 2)
-                        }
-
-                        if newWatchedFiles.count > 5 {
-                            Button("Import all \(newWatchedFiles.count) files") {
-                                importAllNewFiles()
-                            }
-                            .font(Theme.Fonts.caption)
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-                            .tint(Theme.Colors.accent)
-                        }
-                    } else {
-                        Text("All files imported")
-                            .font(Theme.Fonts.caption)
-                            .foregroundStyle(.tertiary)
-                    }
-                }
-            } else {
-                // No folder set — prompt to set one
-                VStack(spacing: Theme.Spacing.sm) {
-                    Text("Point this project at a folder to auto-import files")
-                        .font(Theme.Fonts.caption)
-                        .foregroundStyle(.tertiary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-
-                    Button { selectWatchedFolder() } label: {
-                        Label("Choose Folder", systemImage: "folder.badge.plus")
-                            .font(Theme.Fonts.body)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .tint(Theme.Colors.accent)
-                }
-            }
-        }
-    }
-
-    private func selectWatchedFolder() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.message = "Choose a folder for this project to watch"
-        panel.begin { response in
-            guard response == .OK, let url = panel.url else { return }
-            var updated = project
-            var meta = updated.metadata
-            meta["watchedFolder"] = url.path
-            updated.metadata = meta
-            updated.updatedAt = .now
-            try? store.insertNode(updated)
-        }
-    }
-
-    private func importFile(_ file: FileIngestor.FileInfo) {
-        // Dedup: skip if path already imported
-        guard !importedWatchedPaths.contains(file.path) else { return }
-
-        let node = MindNode(
-            type: .source,
-            title: file.name,
-            body: "\(file.path)\n\(file.ext.uppercased()) · \(formatSize(file.size))",
-            relevance: 0.7,
-            confidence: 0.9,
-            sourceOrigin: "watched_folder",
-            metadata: ["path": file.path, "ext": file.ext]
-        )
-        try? store.insertNode(node)
-
-        let link = MindLink(
-            sourceID: project.id,
-            targetID: node.id,
-            linkType: .fromSource
-        )
-        try? store.insertLink(link)
-    }
-
-    private func importAllNewFiles() {
-        for file in newWatchedFiles {
-            importFile(file)
-        }
-    }
-
-    private func iconForExt(_ ext: String) -> String {
-        switch ext {
-        case "swift", "py", "js", "ts", "rs", "go": "chevron.left.forwardslash.chevron.right"
-        case "md", "txt", "org": "doc.text"
-        case "pdf": "doc.richtext"
-        case "png", "jpg", "jpeg", "gif", "webp", "svg": "photo"
-        case "json", "yaml", "yml", "toml": "curlybraces"
-        case "csv", "tsv": "tablecells"
-        default: "doc"
-        }
-    }
-
-    private func formatSize(_ bytes: Int64) -> String {
-        let f = ByteCountFormatter()
-        f.allowedUnits = [.useKB, .useMB]
-        return f.string(fromByteCount: bytes)
-    }
-
-    // MARK: - Quick Add Card
-
-    private var quickAddCard: some View {
-        DashboardCard(title: "Add", icon: "plus.circle", showCount: false) {
-            VStack(spacing: Theme.Spacing.sm) {
-                ForEach([NodeType.task, .note, .person, .event, .source], id: \.self) { type in
-                    Button { addLinkedNode(type: type) } label: {
-                        HStack(spacing: Theme.Spacing.sm) {
-                            Image(systemName: type.sfIcon)
-                                .frame(width: 16)
-                            Text(type.rawValue.capitalized)
-                            Spacer()
-                            Image(systemName: "plus")
-                                .font(.caption)
-                                .foregroundStyle(.tertiary)
-                        }
-                        .font(Theme.Fonts.body)
-                        .padding(.vertical, 4)
-                        .padding(.horizontal, Theme.Spacing.sm)
-                        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: Theme.Radius.chip))
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        }
-    }
-
-    // MARK: - Actions
-
-    private func saveTitle() {
-        let trimmed = editingTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, trimmed != project.title else { isEditingTitle = false; return }
-        var updated = project
-        updated.title = trimmed
-        updated.updatedAt = .now
-        try? store.insertNode(updated)
-        isEditingTitle = false
-    }
-
-    private func setStatus(_ status: NodeStatus) {
-        var updated = project
-        updated.status = status
-        updated.updatedAt = .now
-        try? store.insertNode(updated)
-    }
-
-    private func toggleTask(_ node: MindNode) {
-        var updated = node
-        updated.status = node.status == .completed ? .active : .completed
-        updated.updatedAt = .now
-        try? store.insertNode(updated)
-    }
-
-    private func addQuickTask() {
-        let trimmed = newTaskText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-
-        let task = MindNode(type: .task, title: trimmed, sourceOrigin: "project_add")
-        try? store.insertNode(task)
-
-        let link = MindLink(sourceID: project.id, targetID: task.id, linkType: .belongsTo)
-        try? store.insertLink(link)
-
-        newTaskText = ""
-    }
-
-    private func addQuickNote() {
-        let trimmed = newNoteText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-
-        let note = MindNode(type: .note, title: trimmed, sourceOrigin: "project_add")
-        try? store.insertNode(note)
-
-        let link = MindLink(sourceID: project.id, targetID: note.id, linkType: .belongsTo)
-        try? store.insertLink(link)
-
-        newNoteText = ""
-    }
-
-    /// Link an existing node to this project (from discovered/related)
-    private func linkNode(_ node: MindNode) {
-        let link = MindLink(
-            sourceID: project.id,
-            targetID: node.id,
-            linkType: .relatedTo
-        )
-        try? store.insertLink(link)
-    }
-
-    private func addLinkedNode(type: NodeType) {
-        let node = MindNode(
-            type: type,
-            title: "New \(type.rawValue)",
-            sourceOrigin: "project_add"
-        )
-        try? store.insertNode(node)
-
-        let link = MindLink(
-            sourceID: project.id,
-            targetID: node.id,
-            linkType: type == .source ? .fromSource : .belongsTo
-        )
-        try? store.insertLink(link)
-    }
-}
-
-// MARK: - Dashboard Card (reusable panel)
-
-struct DashboardCard<Content: View>: View {
-    let title: String
-    let icon: String
-    var count: Int = 0
-    var showCount: Bool = true
-    @State private var isHovered = false
-    @ViewBuilder let content: () -> Content
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-            // Card header
-            HStack(spacing: 6) {
-                Image(systemName: icon)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                Text(title)
-                    .font(Theme.Fonts.headline)
-                    .foregroundStyle(.primary)
-                if showCount {
-                    Text("\(count)")
-                        .font(Theme.Fonts.tiny)
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(.quaternary, in: Capsule())
-                }
-                Spacer()
-            }
-
-            content()
         }
         .padding(Theme.Spacing.lg)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .spatialCard(
-            shadow: isHovered ? Theme.Shadow.elevated : Theme.Shadow.card,
-            radius: Theme.Radius.card
-        )
-        .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.15)) {
-                isHovered = hovering
+        .spatialCard()
+    }
+
+    // MARK: - Milestones Card
+
+    private var milestonesCard: some View {
+        let milestones = store.milestones(for: project.id)
+        return VStack(alignment: .leading, spacing: Theme.Spacing.md) {
+            HStack(spacing: Theme.Spacing.sm) {
+                Text("Milestones")
+                    .font(Theme.Fonts.sectionTitle)
+                Spacer()
+                if !milestones.isEmpty {
+                    let done = milestones.filter(\.isCompleted).count
+                    Text("\(done)/\(milestones.count)")
+                        .font(Theme.Fonts.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(.quaternary, in: Capsule())
+                }
+            }
+
+            MilestoneTimelineView(milestones: milestones, projectID: project.id)
+        }
+        .padding(Theme.Spacing.lg)
+        .spatialCard()
+    }
+
+    // MARK: - Connections Card
+
+    private var connectionsCard: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.md) {
+            Text("Connections (\(connections.count))")
+                .font(Theme.Fonts.sectionTitle)
+
+            FlowLayout(spacing: Theme.Spacing.sm) {
+                ForEach(connections.prefix(10)) { node in
+                    HStack(spacing: 4) {
+                        Circle()
+                            .fill(Theme.Colors.typeColor(node.type))
+                            .frame(width: 5, height: 5)
+                        Text(node.title)
+                            .font(Theme.Fonts.caption)
+                            .lineLimit(1)
+                    }
+                    .padding(.horizontal, Theme.Spacing.sm)
+                    .padding(.vertical, 4)
+                    .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: Theme.Radius.chip))
+                    .contentShape(Rectangle())
+                    .onTapGesture { selectedNode = node }
+                }
             }
         }
+        .padding(Theme.Spacing.lg)
+        .spatialCard()
     }
-}
 
-// MARK: - Adaptive Card Grid
+    // MARK: - Save
 
-/// Two-column grid on wider views, single column on narrow.
-/// Uses LazyVGrid so cards fill naturally.
-struct AdaptiveCardGrid<Content: View>: View {
-    @ViewBuilder let content: () -> Content
-
-    var body: some View {
-        let columns = [
-            GridItem(.flexible(), spacing: Theme.Spacing.md),
-            GridItem(.flexible(), spacing: Theme.Spacing.md),
-        ]
-        LazyVGrid(columns: columns, spacing: Theme.Spacing.md) {
-            content()
-        }
+    private func saveProject() {
+        var updated = project
+        updated.title = title
+        updated.body = bodyText
+        updated.updatedAt = .now
+        try? store.insertNode(updated)
     }
 }

@@ -15,6 +15,7 @@ struct KeyboardHelp: View {
         Shortcut(key: "K", modifiers: "⌘", description: "Quick Switch — search anything"),
         Shortcut(key: "N", modifiers: "⌘", description: "Quick Add — capture a thought"),
         Shortcut(key: "I", modifiers: "⌘", description: "Toggle Inspector"),
+        Shortcut(key: "D", modifiers: "⌘", description: "Duplicate selected node"),
         Shortcut(key: "1", modifiers: "⌘", description: "Today view"),
         Shortcut(key: "2", modifiers: "⌘", description: "Chat"),
         Shortcut(key: "3", modifiers: "⌘", description: "Projects"),

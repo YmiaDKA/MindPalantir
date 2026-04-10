@@ -558,6 +558,109 @@ final class NodeStore {
             throw StoreError.queryFailed
         }
     }
+
+    // MARK: - Milestones
+
+    /// Load milestones for a project node from its metadata.
+    func milestones(for projectID: UUID) -> [Milestone] {
+        guard let node = nodes[projectID], node.type == .project else { return [] }
+        let json = node.metadata[Milestone.metadataKey] ?? "[]"
+        return Milestone.decode(json)
+    }
+
+    /// Save milestones array into a project node's metadata.
+    func saveMilestones(_ milestones: [Milestone], for projectID: UUID) {
+        guard var node = nodes[projectID], node.type == .project else { return }
+        node.metadata[Milestone.metadataKey] = Milestone.encode(milestones)
+        node.updatedAt = .now
+        nodes[projectID] = node
+        try? insertNode(node)
+        changeCount += 1
+    }
+
+    /// Add a single milestone to a project.
+    func addMilestone(_ milestone: Milestone, to projectID: UUID) {
+        var current = milestones(for: projectID)
+        var m = milestone
+        m.sortOrder = current.count
+        current.append(m)
+        saveMilestones(current, for: projectID)
+    }
+
+    /// Toggle a milestone's completion status.
+    func toggleMilestone(_ milestoneID: UUID, in projectID: UUID) {
+        var current = milestones(for: projectID)
+        guard let idx = current.firstIndex(where: { $0.id == milestoneID }) else { return }
+        current[idx].toggleComplete()
+        saveMilestones(current, for: projectID)
+    }
+
+    /// Delete a milestone from a project.
+    func deleteMilestone(_ milestoneID: UUID, from projectID: UUID) {
+        var current = milestones(for: projectID)
+        current.removeAll { $0.id == milestoneID }
+        // Re-sort
+        for i in 0..<current.count {
+            current[i].sortOrder = i
+        }
+        saveMilestones(current, for: projectID)
+    }
+
+    /// Update an existing milestone.
+    func updateMilestone(_ milestone: Milestone, in projectID: UUID) {
+        var current = milestones(for: projectID)
+        guard let idx = current.firstIndex(where: { $0.id == milestone.id }) else { return }
+        current[idx] = milestone
+        saveMilestones(current, for: projectID)
+    }
+
+    // MARK: - Duplicate
+
+    /// Duplicate a node with all its links. The copy gets a new UUID and "(Copy)" suffix.
+    /// Links are remapped so the copy participates in the same relationships.
+    @discardableResult
+    func duplicateNode(id: UUID) throws -> MindNode? {
+        guard let original = nodes[id] else { return nil }
+
+        // Create the copy
+        var copy = MindNode(
+            type: original.type,
+            title: original.title + " (Copy)",
+            body: original.body,
+            relevance: original.relevance,
+            confidence: original.confidence,
+            status: original.status,
+            pinned: false, // copies start unpinned
+            sourceOrigin: original.sourceOrigin,
+            metadata: original.metadata,
+            dueDate: original.dueDate
+        )
+
+        try insertNode(copy)
+
+        // Duplicate all links involving the original node
+        let relatedLinks = links.values.filter { $0.sourceID == id || $0.targetID == id }
+        for link in relatedLinks {
+            let newSource = link.sourceID == id ? copy.id : link.sourceID
+            let newTarget = link.targetID == id ? copy.id : link.targetID
+
+            // Skip self-links on the copy
+            if newSource == newTarget { continue }
+
+            // Skip if link already exists
+            if linkExists(sourceID: newSource, targetID: newTarget, type: link.linkType) { continue }
+
+            let newLink = MindLink(
+                sourceID: newSource,
+                targetID: newTarget,
+                linkType: link.linkType,
+                weight: link.weight
+            )
+            try? insertLink(newLink)
+        }
+
+        return copy
+    }
 }
 
 enum StoreError: Error {
