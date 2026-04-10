@@ -8,6 +8,8 @@ struct ProjectDetailView: View {
 
     @State private var title: String
     @State private var bodyText: String
+    @State private var taskOrder: [UUID] = []
+    @State private var draggingTaskID: UUID?
 
     init(project: MindNode, selectedNode: Binding<MindNode?>) {
         self.project = project
@@ -22,6 +24,20 @@ struct ProjectDetailView: View {
 
     private var completedTasks: [MindNode] {
         tasks.filter { $0.status == .completed }
+    }
+
+    /// Tasks sorted by user-defined order (drag-and-drop), falling back to metadata then relevance.
+    private var sortedTasks: [MindNode] {
+        if taskOrder.isEmpty { return tasks }
+        var ordered: [MindNode] = []
+        var remaining = tasks
+        for id in taskOrder {
+            if let idx = remaining.firstIndex(where: { $0.id == id }) {
+                ordered.append(remaining.remove(at: idx))
+            }
+        }
+        ordered.append(contentsOf: remaining)
+        return ordered
     }
 
     private var notes: [MindNode] {
@@ -119,46 +135,106 @@ struct ProjectDetailView: View {
 
     private var tasksCard: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.md) {
-            Text("Tasks")
-                .font(Theme.Fonts.sectionTitle)
+            HStack(spacing: Theme.Spacing.sm) {
+                Text("Tasks")
+                    .font(Theme.Fonts.sectionTitle)
+                Spacer()
+                Text("drag to reorder")
+                    .font(Theme.Fonts.tiny)
+                    .foregroundStyle(.tertiary)
+            }
 
             VStack(spacing: 1) {
-                ForEach(tasks) { task in
-                    HStack(spacing: Theme.Spacing.sm) {
-                        Button {
-                            var updated = task
-                            updated.status = updated.status == .completed ? .active : .completed
-                            updated.updatedAt = .now
-                            try? store.insertNode(updated)
-                        } label: {
-                            Image(systemName: task.status == .completed ? "checkmark.circle.fill" : "circle")
-                                .font(.system(size: 14))
-                                .foregroundStyle(task.status == .completed ? .green : .secondary.opacity(0.6))
+                ForEach(sortedTasks) { task in
+                    taskRow(task)
+                        .onDrag {
+                            draggingTaskID = task.id
+                            return NSItemProvider(object: task.id.uuidString as NSString)
                         }
-                        .buttonStyle(.plain)
-
-                        Text(task.title)
-                            .font(Theme.Fonts.body)
-                            .strikethrough(task.status == .completed)
-                            .lineLimit(1)
-
-                        Spacer()
-
-                        if let due = task.dueDate {
-                            Text(due, style: .relative)
-                                .font(Theme.Fonts.tiny)
-                                .foregroundStyle(due < Date() ? AnyShapeStyle(.red) : AnyShapeStyle(.tertiary))
-                        }
-                    }
-                    .padding(.horizontal, Theme.Spacing.sm)
-                    .padding(.vertical, 4)
-                    .contentShape(Rectangle())
-                    .onTapGesture { selectedNode = task }
+                        .onDrop(
+                            of: [.text],
+                            delegate: TaskDropDelegate(
+                                taskID: task.id,
+                                draggingID: $draggingTaskID,
+                                taskOrder: $taskOrder,
+                                tasks: tasks,
+                                saveOrder: saveTaskOrder
+                            )
+                        )
                 }
             }
+            .onAppear { loadTaskOrder() }
+            .onChange(of: tasks.count) { _, _ in loadTaskOrder() }
         }
         .padding(Theme.Spacing.lg)
         .spatialCard()
+    }
+
+    private func taskRow(_ task: MindNode) -> some View {
+        HStack(spacing: Theme.Spacing.sm) {
+            // Drag handle
+            Image(systemName: "line.3.horizontal")
+                .font(.system(size: 10))
+                .foregroundStyle(.tertiary.opacity(draggingTaskID == task.id ? 0.0 : 0.5))
+                .frame(width: 12)
+
+            Button {
+                var updated = task
+                updated.status = updated.status == .completed ? .active : .completed
+                updated.updatedAt = .now
+                try? store.insertNode(updated)
+            } label: {
+                Image(systemName: task.status == .completed ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 14))
+                    .foregroundStyle(task.status == .completed ? .green : .secondary.opacity(0.6))
+            }
+            .buttonStyle(.plain)
+
+            Text(task.title)
+                .font(Theme.Fonts.body)
+                .strikethrough(task.status == .completed)
+                .lineLimit(1)
+
+            Spacer()
+
+            if let due = task.dueDate {
+                Text(due, style: .relative)
+                    .font(Theme.Fonts.tiny)
+                    .foregroundStyle(due < Date() ? AnyShapeStyle(.red) : AnyShapeStyle(.tertiary))
+            }
+        }
+        .padding(.horizontal, Theme.Spacing.sm)
+        .padding(.vertical, 4)
+        .background(
+            draggingTaskID == task.id
+                ? Theme.Colors.accent.opacity(0.06)
+                : Color.clear
+        )
+        .contentShape(Rectangle())
+        .onTapGesture { selectedNode = task }
+    }
+
+    // MARK: - Task Order Persistence
+
+    private func loadTaskOrder() {
+        guard let orderStr = project.metadata["taskOrder"] else {
+            taskOrder = tasks.map(\.id)
+            return
+        }
+        let ids = orderStr.split(separator: ",").compactMap { UUID(uuidString: String($0)) }
+        // Include any new tasks not yet in order
+        var ordered = ids.filter { id in tasks.contains(where: { $0.id == id }) }
+        for task in tasks where !ordered.contains(task.id) {
+            ordered.append(task.id)
+        }
+        taskOrder = ordered
+    }
+
+    private func saveTaskOrder() {
+        var updated = project
+        updated.metadata["taskOrder"] = taskOrder.map(\.uuidString).joined(separator: ",")
+        updated.updatedAt = .now
+        try? store.insertNode(updated)
     }
 
     // MARK: - Notes Card
@@ -258,5 +334,35 @@ struct ProjectDetailView: View {
         updated.body = bodyText
         updated.updatedAt = .now
         try? store.insertNode(updated)
+    }
+}
+
+// MARK: - Drop Delegate for Task Reordering
+
+struct TaskDropDelegate: DropDelegate {
+    let taskID: UUID
+    @Binding var draggingID: UUID?
+    @Binding var taskOrder: [UUID]
+    let tasks: [MindNode]
+    let saveOrder: () -> Void
+
+    func dropEntered(info: DropInfo) {
+        guard let draggingID, draggingID != taskID else { return }
+        guard let fromIndex = taskOrder.firstIndex(of: draggingID),
+              let toIndex = taskOrder.firstIndex(of: taskID) else { return }
+        withAnimation(.easeInOut(duration: 0.15)) {
+            taskOrder.move(fromOffsets: IndexSet(integer: fromIndex),
+                           toOffset: toIndex > fromIndex ? toIndex + 1 : toIndex)
+        }
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        draggingID = nil
+        saveOrder()
+        return true
     }
 }
