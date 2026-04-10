@@ -1,6 +1,7 @@
 import SwiftUI
 
 /// Generic list for a node type — filterable, sortable, grouped.
+/// Keyboard navigation: ↑↓/J/K to move, Enter to select, Escape to deselect.
 struct NodeListView: View {
     @Environment(NodeStore.self) private var store
     let type: NodeType
@@ -8,6 +9,7 @@ struct NodeListView: View {
     @State private var sortMode: SortMode = .relevance
     @State private var filterStatus: NodeStatus? = nil
     @State private var searchText = ""
+    @State private var focusedNodeID: UUID?
 
     enum SortMode: String, CaseIterable {
         case relevance = "Relevance"
@@ -45,16 +47,48 @@ struct NodeListView: View {
 
             Divider()
 
-            List {
+            List(selection: $focusedNodeID) {
                 ForEach(filteredNodes) { node in
                     NodeListRow(node: node, store: store, selectedNode: $selectedNode)
+                        .focusRing(isFocused: focusedNodeID == node.id, style: .subtle)
+                        .tag(node.id)
                 }
                 .onDelete(perform: deleteNodes)
             }
             .listStyle(.plain)
         }
         .navigationTitle(type.rawValue.capitalized)
-        .searchable(text: $searchText, prompt: "Search \(type.rawValue)s...")
+        .searchable(text: $searchText, prompt: "Search \\(type.rawValue)s...")
+        // Keyboard navigation
+        .onKeyPress(.return) {
+            if let id = focusedNodeID, let node = filteredNodes.first(where: { $0.id == id }) {
+                selectedNode = node
+            }
+            return .handled
+        }
+        .onKeyPress(.escape) {
+            if focusedNodeID != nil {
+                focusedNodeID = nil
+                return .handled
+            }
+            selectedNode = nil
+            return .handled
+        }
+        .onKeyPress("j") { moveListFocus(direction: 1); return .handled }
+        .onKeyPress("k") { moveListFocus(direction: -1); return .handled }
+    }
+    
+    private func moveListFocus(direction: Int) {
+        let nodes = filteredNodes
+        guard !nodes.isEmpty else { return }
+        
+        if let currentID = focusedNodeID,
+           let currentIndex = nodes.firstIndex(where: { $0.id == currentID }) {
+            let newIndex = max(0, min(nodes.count - 1, currentIndex + direction))
+            focusedNodeID = nodes[newIndex].id
+        } else {
+            focusedNodeID = direction > 0 ? nodes.first?.id : nodes.last?.id
+        }
     }
 
     private var filterBar: some View {
@@ -174,6 +208,7 @@ struct ProjectListView: View {
     @Binding var selectedNode: MindNode?
     var onOpenProject: ((MindNode) -> Void)?
     @State private var viewMode: ViewMode = .cards
+    @State private var focusedProjectID: UUID?
 
     enum ViewMode: String, CaseIterable {
         case cards = "Cards"
@@ -214,6 +249,39 @@ struct ProjectListView: View {
                 projectList
             }
         }
+        // Keyboard navigation
+        .onKeyPress(.return) {
+            if let id = focusedProjectID, let project = sortedProjects.first(where: { $0.id == id }) {
+                if let onOpenProject { onOpenProject(project) }
+                else { selectedNode = project }
+            }
+            return .handled
+        }
+        .onKeyPress(.escape) {
+            if focusedProjectID != nil {
+                focusedProjectID = nil
+                return .handled
+            }
+            selectedNode = nil
+            return .handled
+        }
+        .onKeyPress("j") { moveFocus(direction: 1); return .handled }
+        .onKeyPress("k") { moveFocus(direction: -1); return .handled }
+        .onKeyPress(.downArrow) { moveFocus(direction: 1); return .handled }
+        .onKeyPress(.upArrow) { moveFocus(direction: -1); return .handled }
+    }
+    
+    private func moveFocus(direction: Int) {
+        let projects = sortedProjects
+        guard !projects.isEmpty else { return }
+        
+        if let currentID = focusedProjectID,
+           let currentIndex = projects.firstIndex(where: { $0.id == currentID }) {
+            let newIndex = max(0, min(projects.count - 1, currentIndex + direction))
+            focusedProjectID = projects[newIndex].id
+        } else {
+            focusedProjectID = direction > 0 ? projects.first?.id : projects.last?.id
+        }
     }
 
     // MARK: - Card Grid
@@ -228,6 +296,8 @@ struct ProjectListView: View {
                         }
                         selectedNode = project
                     }
+                    .focusRing(isFocused: focusedProjectID == project.id)
+                    .id(project.id)
                 }
             }
             .padding(Theme.Spacing.lg)

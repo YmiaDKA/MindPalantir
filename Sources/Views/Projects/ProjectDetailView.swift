@@ -1,6 +1,7 @@
 import SwiftUI
 
 /// Detail view for a single project — the workspace for one thing.
+/// Keyboard navigation: ↑↓/J/K between tasks, Space to toggle, Enter to select.
 struct ProjectDetailView: View {
     @Environment(NodeStore.self) private var store
     let project: MindNode
@@ -10,6 +11,7 @@ struct ProjectDetailView: View {
     @State private var bodyText: String
     @State private var taskOrder: [UUID] = []
     @State private var draggingTaskID: UUID?
+    @State private var focusedTaskID: UUID?
 
     init(project: MindNode, selectedNode: Binding<MindNode?>) {
         self.project = project
@@ -78,6 +80,48 @@ struct ProjectDetailView: View {
             .padding(Theme.Spacing.xxl)
         }
         .background(Theme.Colors.windowBackground)
+        // Keyboard navigation for tasks
+        .onKeyPress(.upArrow) { moveTaskFocus(direction: -1); return .handled }
+        .onKeyPress(.downArrow) { moveTaskFocus(direction: 1); return .handled }
+        .onKeyPress("k") { moveTaskFocus(direction: -1); return .handled }
+        .onKeyPress("j") { moveTaskFocus(direction: 1); return .handled }
+        .onKeyPress(.space) { toggleFocusedTask(); return .handled }
+        .onKeyPress(.return) {
+            if let id = focusedTaskID, let task = tasks.first(where: { $0.id == id }) {
+                selectedNode = task
+            }
+            return .handled
+        }
+        .onKeyPress(.escape) {
+            if focusedTaskID != nil {
+                focusedTaskID = nil
+                return .handled
+            }
+            selectedNode = nil
+            return .handled
+        }
+    }
+    
+    // MARK: - Keyboard Actions
+    
+    private func moveTaskFocus(direction: Int) {
+        let ordered = sortedTasks
+        guard !ordered.isEmpty else { return }
+        
+        if let currentID = focusedTaskID,
+           let currentIndex = ordered.firstIndex(where: { $0.id == currentID }) {
+            let newIndex = max(0, min(ordered.count - 1, currentIndex + direction))
+            focusedTaskID = ordered[newIndex].id
+        } else {
+            focusedTaskID = direction > 0 ? ordered.first?.id : ordered.last?.id
+        }
+    }
+    
+    private func toggleFocusedTask() {
+        guard let id = focusedTaskID, var task = tasks.first(where: { $0.id == id }) else { return }
+        task.status = task.status == .completed ? .active : .completed
+        task.updatedAt = .now
+        try? store.insertNode(task)
     }
 
     // MARK: - Header
@@ -139,14 +183,20 @@ struct ProjectDetailView: View {
                 Text("Tasks")
                     .font(Theme.Fonts.sectionTitle)
                 Spacer()
-                Text("drag to reorder")
-                    .font(Theme.Fonts.tiny)
-                    .foregroundStyle(.tertiary)
+                if focusedTaskID != nil {
+                    KeyboardHintsBar(hints: [("↑↓", "nav"), ("␣", "done"), ("↵", "open")])
+                } else {
+                    Text("drag to reorder")
+                        .font(Theme.Fonts.tiny)
+                        .foregroundStyle(.tertiary)
+                }
             }
 
             VStack(spacing: 1) {
                 ForEach(sortedTasks) { task in
                     taskRow(task)
+                        .focusRing(isFocused: focusedTaskID == task.id, style: .subtle)
+                        .id(task.id)
                         .onDrag {
                             draggingTaskID = task.id
                             return NSItemProvider(object: task.id.uuidString as NSString)

@@ -1,6 +1,7 @@
 import SwiftUI
 
 /// Keyboard shortcuts help overlay — Cmd+/ to show.
+/// Grouped by category: Global, Navigation, Actions.
 struct KeyboardHelp: View {
     @Binding var isPresented: Bool
 
@@ -11,31 +12,42 @@ struct KeyboardHelp: View {
         let description: String
     }
 
-    private let shortcuts: [Shortcut] = [
-        Shortcut(key: "K", modifiers: "⌘", description: "Quick Switch — search anything"),
-        Shortcut(key: "N", modifiers: "⌘", description: "Quick Add — capture a thought"),
-        Shortcut(key: "N", modifiers: "⌘⇧", description: "New note from template"),
-        Shortcut(key: "I", modifiers: "⌘", description: "Toggle Inspector"),
-        Shortcut(key: "D", modifiers: "⌘", description: "Duplicate selected node"),
-        Shortcut(key: "E", modifiers: "⌘", description: "Edit node body in inspector"),
-        Shortcut(key: "P", modifiers: "⌘", description: "Pin/unpin selected node"),
-        Shortcut(key: "T", modifiers: "⌘", description: "Quick Task"),
-        Shortcut(key: "P", modifiers: "⌘⇧", description: "Command Palette"),
-        Shortcut(key: "1", modifiers: "⌘", description: "Today view"),
-        Shortcut(key: "2", modifiers: "⌘", description: "Chat"),
-        Shortcut(key: "3", modifiers: "⌘", description: "Projects"),
-        Shortcut(key: "4", modifiers: "⌘", description: "Graph"),
-        Shortcut(key: "5", modifiers: "⌘", description: "Notes"),
-        Shortcut(key: "6", modifiers: "⌘", description: "Tasks"),
-        Shortcut(key: "7", modifiers: "⌘", description: "Timeline"),
-        Shortcut(key: "8", modifiers: "⌘", description: "People"),
-        Shortcut(key: "9", modifiers: "⌘", description: "Sources"),
-        Shortcut(key: "F", modifiers: "⌘", description: "Search"),
-        Shortcut(key: ".", modifiers: "⌘", description: "Focus Mode — hide sidebar & inspector"),
-        Shortcut(key: "/", modifiers: "⌘", description: "Keyboard shortcuts"),
-        Shortcut(key: "↑↓", modifiers: "", description: "Navigate cards on Today view"),
-        Shortcut(key: "↵", modifiers: "", description: "Open focused item"),
+    private struct ShortcutGroup: Identifiable {
+        let id = UUID()
+        let title: String
+        let shortcuts: [Shortcut]
+    }
+
+    private let groups: [ShortcutGroup] = [
+        ShortcutGroup(title: "Global", shortcuts: [
+            Shortcut(key: "K", modifiers: "⌘", description: "Quick Switch"),
+            Shortcut(key: "N", modifiers: "⌘", description: "Quick Add"),
+            Shortcut(key: "N", modifiers: "⌘⇧", description: "New note from template"),
+            Shortcut(key: "I", modifiers: "⌘", description: "Toggle Inspector"),
+            Shortcut(key: "D", modifiers: "⌘", description: "Duplicate selected"),
+            Shortcut(key: "E", modifiers: "⌘", description: "Edit body"),
+            Shortcut(key: "P", modifiers: "⌘", description: "Pin/unpin selected"),
+            Shortcut(key: "T", modifiers: "⌘", description: "Quick Task"),
+            Shortcut(key: "P", modifiers: "⌘⇧", description: "Command Palette"),
+            Shortcut(key: ".", modifiers: "⌘", description: "Focus Mode"),
+            Shortcut(key: "/", modifiers: "⌘", description: "This help"),
+        ]),
+        ShortcutGroup(title: "Navigation", shortcuts: [
+            Shortcut(key: "1–9", modifiers: "⌘", description: "Switch screens"),
+            Shortcut(key: "↑↓", modifiers: "", description: "Navigate items"),
+            Shortcut(key: "J / K", modifiers: "", description: "Navigate (Vim)"),
+            Shortcut(key: "←→", modifiers: "", description: "Navigate horizontal"),
+            Shortcut(key: "H / L", modifiers: "", description: "Navigate horizontal (Vim)"),
+            Shortcut(key: "Tab", modifiers: "", description: "Next section"),
+            Shortcut(key: "⇧Tab", modifiers: "", description: "Previous section"),
+        ]),
+        ShortcutGroup(title: "Actions", shortcuts: [
+            Shortcut(key: "↵", modifiers: "", description: "Open focused item"),
+            Shortcut(key: "Space", modifiers: "", description: "Toggle task done"),
+            Shortcut(key: "Esc", modifiers: "", description: "Clear focus / go back"),
+        ]),
     ]
+
 
     var body: some View {
         VStack(spacing: 0) {
@@ -54,38 +66,48 @@ struct KeyboardHelp: View {
 
             Divider()
 
-            // Shortcuts list
+            // Shortcuts list — grouped by category
             ScrollView {
-                VStack(spacing: Theme.Spacing.xs) {
-                    ForEach(shortcuts) { shortcut in
-                        HStack {
-                            Text(shortcut.description)
-                                .font(Theme.Fonts.body)
-                                .foregroundStyle(.primary)
-                            Spacer()
-                            HStack(spacing: 2) {
-                                if !shortcut.modifiers.isEmpty {
-                                    Text(shortcut.modifiers)
-                                        .font(Theme.Fonts.caption)
-                                        .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: Theme.Spacing.md) {
+                    ForEach(groups) { group in
+                        VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+                            Text(group.title)
+                                .font(Theme.Fonts.caption)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(Theme.Colors.accent)
+                                .padding(.horizontal, Theme.Spacing.lg)
+                            
+                            ForEach(group.shortcuts) { shortcut in
+                                HStack {
+                                    Text(shortcut.description)
+                                        .font(Theme.Fonts.body)
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    HStack(spacing: 2) {
+                                        if !shortcut.modifiers.isEmpty {
+                                            Text(shortcut.modifiers)
+                                                .font(Theme.Fonts.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                        Text(shortcut.key)
+                                            .font(Theme.Fonts.caption)
+                                            .fontWeight(.semibold)
+                                            .foregroundStyle(.primary)
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 2)
+                                            .background(.quaternary, in: RoundedRectangle(cornerRadius: 4))
+                                    }
                                 }
-                                Text(shortcut.key)
-                                    .font(Theme.Fonts.caption)
-                                    .fontWeight(.semibold)
-                                    .foregroundStyle(.primary)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 4))
+                                .padding(.horizontal, Theme.Spacing.lg)
+                                .padding(.vertical, 3)
                             }
                         }
-                        .padding(.horizontal, Theme.Spacing.lg)
-                        .padding(.vertical, 4)
                     }
                 }
                 .padding(.vertical, Theme.Spacing.sm)
             }
         }
-        .frame(width: 360)
+        .frame(width: 380)
         .background(.regularMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .shadow(color: .black.opacity(0.15), radius: 20, y: 8)
