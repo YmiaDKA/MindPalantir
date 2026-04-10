@@ -55,6 +55,9 @@ struct ProjectDetailView: View {
                 if !connections.isEmpty {
                     connectionsCard
                 }
+
+                // Mini graph canvas — visual map of this node's neighborhood
+                miniGraphCard
             }
             .padding(Theme.Spacing.xxl)
         }
@@ -237,6 +240,14 @@ struct ProjectDetailView: View {
         }
         .padding(Theme.Spacing.lg)
         .spatialCard()
+    }
+
+    // MARK: - Mini Graph Card
+
+    private var miniGraphCard: some View {
+        MiniGraphCanvas(centerNode: project, selectedNode: $selectedNode)
+            .padding(Theme.Spacing.lg)
+            .spatialCard()
     }
 
     // MARK: - Save
