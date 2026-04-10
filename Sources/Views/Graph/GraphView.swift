@@ -19,6 +19,7 @@ struct GraphView: View {
     @State private var showSearchResults = false
     @GestureState private var panState: CGSize = .zero
     @GestureState private var magnifyState: CGFloat = 1.0
+    @State private var keyboardFocusedNode: UUID?
 
     // Simulation parameters
     private let repulsion: CGFloat = 8000
@@ -139,8 +140,30 @@ struct GraphView: View {
                                 )
                             }
 
-                            // Label
-                            if showLabels && radius > 6 {
+                            // Keyboard focus ring — dashed, distinct from selection
+                            if keyboardFocusedNode == node.id && selectedNode?.id != node.id {
+                                let focusRect = rect.insetBy(dx: -5, dy: -5)
+                                var dashPath = Path()
+                                dashPath.addEllipse(in: focusRect)
+                                context.stroke(
+                                    dashPath,
+                                    with: .color(Theme.Colors.accent.opacity(0.7)),
+                                    style: StrokeStyle(lineWidth: 1.5, dash: [3, 3])
+                                )
+                            } else if keyboardFocusedNode == node.id {
+                                // Both selected and focused — double ring
+                                let focusRect = rect.insetBy(dx: -8, dy: -8)
+                                var dashPath = Path()
+                                dashPath.addEllipse(in: focusRect)
+                                context.stroke(
+                                    dashPath,
+                                    with: .color(Theme.Colors.accent.opacity(0.5)),
+                                    style: StrokeStyle(lineWidth: 1, dash: [3, 3])
+                                )
+                            }
+
+                            // Label — always show for keyboard-focused or search-matched nodes
+                            if showLabels && radius > 6 || keyboardFocusedNode == node.id {
                                 let label = node.title.count > 12 ? String(node.title.prefix(11)) + "…" : node.title
                                 context.draw(
                                     Text(label)
@@ -244,6 +267,114 @@ struct GraphView: View {
             }
         }
         .navigationTitle("Graph")
+        // Keyboard navigation — arrow keys to move between nodes, Enter to select, Tab to follow connection
+        .onKeyPress(.upArrow) {
+            navigateKeyboard(direction: CGVector(dx: 0, dy: -1))
+            return .handled
+        }
+        .onKeyPress(.downArrow) {
+            navigateKeyboard(direction: CGVector(dx: 0, dy: 1))
+            return .handled
+        }
+        .onKeyPress(.leftArrow) {
+            navigateKeyboard(direction: CGVector(dx: -1, dy: 0))
+            return .handled
+        }
+        .onKeyPress(.rightArrow) {
+            navigateKeyboard(direction: CGVector(dx: 1, dy: 0))
+            return .handled
+        }
+        .onKeyPress(.return) {
+            if let focused = keyboardFocusedNode {
+                selectedNode = store.nodes[focused]
+            }
+            return .handled
+        }
+        .onKeyPress(.tab) {
+            followConnection()
+            return .handled
+        }
+        .onKeyPress(.escape) {
+            if keyboardFocusedNode != nil {
+                keyboardFocusedNode = nil
+                return .handled
+            }
+            return .ignored
+        }
+    }
+
+    // MARK: - Keyboard Navigation
+
+    /// Navigate keyboard focus in a direction — finds the nearest node in that quadrant.
+    private func navigateKeyboard(direction: CGVector) {
+        let nodes = displayNodes
+        guard !nodes.isEmpty else { return }
+
+        // Start from focused node position, or center
+        let origin: CGPoint
+        if let focused = keyboardFocusedNode, let pos = positions[focused] {
+            origin = pos
+        } else {
+            keyboardFocusedNode = nodes.first?.id
+            return
+        }
+
+        // Find the best candidate in the given direction
+        // Score = dot product with direction (must be positive) weighted by inverse distance
+        var bestScore: CGFloat = -1
+        var bestNode: MindNode?
+
+        for node in nodes {
+            guard node.id != keyboardFocusedNode,
+                  let pos = positions[node.id] else { continue }
+
+            let dx = pos.x - origin.x
+            let dy = pos.y - origin.y
+            let dist = max(1, hypot(dx, dy))
+
+            // Dot product — how aligned is this node with the desired direction?
+            let dot = dx * direction.dx + dy * direction.dy
+            guard dot > 0 else { continue }
+
+            // Score favors nodes that are more aligned and reasonably close
+            let alignment = dot / dist
+            let score = alignment / sqrt(dist)
+            if score > bestScore {
+                bestScore = score
+                bestNode = node
+            }
+        }
+
+        if let best = bestNode {
+            withAnimation(.easeInOut(duration: 0.15)) {
+                keyboardFocusedNode = best.id
+            }
+        }
+    }
+
+    /// Tab: follow the strongest connection from the currently focused node
+    private func followConnection() {
+        let sourceID: UUID
+        if let focused = keyboardFocusedNode {
+            sourceID = focused
+        } else if let selected = selectedNode?.id {
+            sourceID = selected
+            keyboardFocusedNode = selected
+        } else {
+            return
+        }
+
+        // Find connected nodes, sorted by link weight
+        let connected = store.links.values
+            .filter { $0.sourceID == sourceID || $0.targetID == sourceID }
+            .sorted { $0.weight > $1.weight }
+
+        guard let strongest = connected.first else { return }
+        let targetID = strongest.sourceID == sourceID ? strongest.targetID : strongest.sourceID
+
+        withAnimation(.easeInOut(duration: 0.15)) {
+            keyboardFocusedNode = targetID
+        }
     }
 
     // MARK: - Camera
@@ -342,6 +473,14 @@ struct GraphView: View {
                 Text("\(displayNodes.count) nodes · \(displayLinks.count) links")
                     .font(Theme.Fonts.tiny)
                     .foregroundStyle(.tertiary)
+
+                // Keyboard navigation hint
+                if keyboardFocusedNode != nil {
+                    Divider().frame(height: 16)
+                    Text("↑↓←→ navigate · ↵ select · Tab follow · Esc clear")
+                        .font(Theme.Fonts.tiny)
+                        .foregroundStyle(.tertiary)
+                }
             }
             .padding(.horizontal, Theme.Spacing.lg)
             .padding(.vertical, Theme.Spacing.sm)
