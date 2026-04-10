@@ -310,6 +310,12 @@ struct RootView: View {
                 toastManager.show(message, icon: icon, style: style)
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("ToggleFocusMode"))) { _ in
+            if focusMode { exitFocusMode() } else { enterFocusMode() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("ToggleInspector"))) { _ in
+            showInspector.toggle()
+        }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 HStack(spacing: Theme.Spacing.sm) {
@@ -418,6 +424,111 @@ struct RootView: View {
 
     // MARK: - Sidebar
 
+    // MARK: - Today Summary
+
+    private var todaySummarySection: some View {
+        let openTasks = store.activeNodes(ofType: .task).filter { $0.status != .completed }
+        let overdueTasks = openTasks.filter { ($0.dueDate ?? .distantFuture) < Date() }
+        let upcomingEvents = store.nodes(ofType: .event).filter {
+            guard let d = $0.dueDate else { return false }
+            return d >= Date() && d <= Date().addingTimeInterval(7 * 86400)
+        }
+        let pinnedProjects = store.activeNodes(ofType: .project).filter { $0.pinned }
+        let uncertain = store.uncertainNodes(limit: 99)
+
+        return Section("Today") {
+            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+                // Top row: tasks + events
+                HStack(spacing: Theme.Spacing.md) {
+                    // Tasks
+                    HStack(spacing: 5) {
+                        Image(systemName: "checklist")
+                            .font(.system(size: 11))
+                            .foregroundStyle(openTasks.isEmpty ? AnyShapeStyle(.tertiary) : AnyShapeStyle(Theme.Colors.typeColor(.task)))
+                        Text("\(openTasks.count)")
+                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                            .foregroundStyle(openTasks.isEmpty ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.primary))
+                        Text("open")
+                            .font(Theme.Fonts.tiny)
+                            .foregroundStyle(.tertiary)
+                    }
+                    .padding(.horizontal, Theme.Spacing.sm)
+                    .padding(.vertical, 5)
+                    .background(
+                        RoundedRectangle(cornerRadius: Theme.Radius.chip)
+                            .fill(openTasks.isEmpty ? Color.clear : Theme.Colors.typeColor(.task).opacity(0.06))
+                    )
+
+                    // Events
+                    HStack(spacing: 5) {
+                        Image(systemName: "calendar")
+                            .font(.system(size: 11))
+                            .foregroundStyle(upcomingEvents.isEmpty ? AnyShapeStyle(.tertiary) : AnyShapeStyle(Theme.Colors.typeColor(.event)))
+                        Text("\(upcomingEvents.count)")
+                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                            .foregroundStyle(upcomingEvents.isEmpty ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.primary))
+                        Text("upcoming")
+                            .font(Theme.Fonts.tiny)
+                            .foregroundStyle(.tertiary)
+                    }
+                    .padding(.horizontal, Theme.Spacing.sm)
+                    .padding(.vertical, 5)
+                    .background(
+                        RoundedRectangle(cornerRadius: Theme.Radius.chip)
+                            .fill(upcomingEvents.isEmpty ? Color.clear : Theme.Colors.typeColor(.event).opacity(0.06))
+                    )
+
+                    Spacer()
+                }
+
+                // Bottom row: warnings + pinned
+                HStack(spacing: Theme.Spacing.md) {
+                    if !overdueTasks.isEmpty {
+                        HStack(spacing: 4) {
+                            Image(systemName: "exclamationmark.circle.fill")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.red)
+                            Text("\(overdueTasks.count) overdue")
+                                .font(Theme.Fonts.tiny)
+                                .foregroundStyle(.red)
+                        }
+                        .padding(.horizontal, Theme.Spacing.sm)
+                        .padding(.vertical, 3)
+                        .background(.red.opacity(0.06), in: RoundedRectangle(cornerRadius: Theme.Radius.chip))
+                    }
+
+                    if !uncertain.isEmpty {
+                        HStack(spacing: 4) {
+                            Image(systemName: "questionmark.circle")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.orange)
+                            Text("\(uncertain.count) unclear")
+                                .font(Theme.Fonts.tiny)
+                                .foregroundStyle(.orange)
+                        }
+                        .padding(.horizontal, Theme.Spacing.sm)
+                        .padding(.vertical, 3)
+                        .background(.orange.opacity(0.06), in: RoundedRectangle(cornerRadius: Theme.Radius.chip))
+                    }
+
+                    if !pinnedProjects.isEmpty {
+                        HStack(spacing: 4) {
+                            Image(systemName: "pin.fill")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.orange.opacity(0.7))
+                            Text("\(pinnedProjects.count) pinned")
+                                .font(Theme.Fonts.tiny)
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+
+                    Spacer()
+                }
+            }
+            .padding(.vertical, 2)
+        }
+    }
+
     /// Count badge for sidebar items
     private func screenCount(_ screen: Screen) -> Int {
         switch screen {
@@ -458,6 +569,9 @@ struct RootView: View {
                     }
                 }
             }
+
+            // Today Summary — at-a-glance dashboard
+            todaySummarySection
 
             // Active projects inline — with relevance dots and pin indicators
             let projects = store.activeNodes(ofType: .project)
