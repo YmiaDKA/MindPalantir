@@ -17,6 +17,7 @@ struct KeyboardHelp: View {
         Shortcut(key: "N", modifiers: "⌘⇧", description: "New note from template"),
         Shortcut(key: "I", modifiers: "⌘", description: "Toggle Inspector"),
         Shortcut(key: "D", modifiers: "⌘", description: "Duplicate selected node"),
+        Shortcut(key: "E", modifiers: "⌘", description: "Edit node body in inspector"),
         Shortcut(key: "P", modifiers: "⌘", description: "Pin/unpin selected node"),
         Shortcut(key: "T", modifiers: "⌘", description: "Quick Task"),
         Shortcut(key: "P", modifiers: "⌘⇧", description: "Command Palette"),

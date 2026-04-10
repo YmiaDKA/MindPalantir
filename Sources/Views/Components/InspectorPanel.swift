@@ -15,6 +15,7 @@ struct InspectorPanel: View {
     @State private var hasDueDate: Bool
     @State private var showSaveConfirmation = false
     @State private var saveTimer: Timer?
+    @FocusState private var bodyFieldFocused: Bool
 
     init(node: MindNode) {
         self.node = node
@@ -86,6 +87,9 @@ struct InspectorPanel: View {
         .onChange(of: confidence) { _, _ in debouncedSave() }
         .onChange(of: pinned) { _, _ in debouncedSave() }
         .onChange(of: status) { _, _ in debouncedSave() }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("FocusBodyEditor"))) { _ in
+            bodyFieldFocused = true
+        }
     }
     
     // MARK: - Header
@@ -121,11 +125,25 @@ struct InspectorPanel: View {
             
             Divider()
             
-            TextField("Add notes...", text: $nodeBody, axis: .vertical)
-                .font(Theme.Fonts.body)
-                .textFieldStyle(.plain)
-                .lineLimit(3...10)
-                .foregroundStyle(.secondary)
+            HStack(alignment: .top, spacing: Theme.Spacing.xs) {
+                TextField("Add notes...", text: $nodeBody, axis: .vertical)
+                    .font(Theme.Fonts.body)
+                    .textFieldStyle(.plain)
+                    .lineLimit(3...10)
+                    .foregroundStyle(.secondary)
+                    .focused($bodyFieldFocused)
+                    .help("Edit body (⌘E)")
+
+                if !bodyFieldFocused {
+                    Text("⌘E")
+                        .font(Theme.Fonts.tiny)
+                        .foregroundStyle(.tertiary)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 3))
+                        .padding(.top, 2)
+                }
+            }
         }
     }
     

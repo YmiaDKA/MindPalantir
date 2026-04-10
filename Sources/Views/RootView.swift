@@ -231,6 +231,9 @@ struct RootView: View {
             Button("") { togglePinSelected() }
                 .keyboardShortcut("p", modifiers: .command)
                 .opacity(0)
+            Button("") { focusBodyEditor() }
+                .keyboardShortcut("e", modifiers: .command)
+                .opacity(0)
         }
     }
 
@@ -457,6 +460,10 @@ struct RootView: View {
             Button("") { togglePinSelected() }
                 .keyboardShortcut("p", modifiers: .command)
                 .opacity(0)
+            // Global keyboard shortcut: focus body editor in inspector
+            Button("") { focusBodyEditor() }
+                .keyboardShortcut("e", modifiers: .command)
+                .opacity(0)
         }
     }
 
@@ -482,6 +489,14 @@ struct RootView: View {
             selectedNode = copy
             toastManager.show("Duplicated \"\(node.title)\"", icon: "doc.on.doc")
         }
+    }
+
+    // MARK: - Edit Body (Cmd+E)
+
+    private func focusBodyEditor() {
+        guard selectedNode != nil else { return }
+        showInspector = true
+        NotificationCenter.default.post(name: NSNotification.Name("FocusBodyEditor"), object: nil)
     }
 
     // MARK: - Focus Mode
