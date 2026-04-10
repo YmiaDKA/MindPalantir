@@ -17,6 +17,12 @@ struct InspectorPanel: View {
     @State private var saveTimer: Timer?
     @FocusState private var bodyFieldFocused: Bool
 
+    // Create Link state
+    @State private var linkSearchText = ""
+    @State private var selectedLinkType: LinkType = .relatedTo
+    @State private var showLinkSearch = false
+    @State private var linkCreatedFeedback = false
+
     init(node: MindNode) {
         self.node = node
         _title = State(initialValue: node.title)
@@ -55,6 +61,9 @@ struct InspectorPanel: View {
                 // Backlinks — nodes that reference this one
                 backlinksSection
                 
+                // Create Link — explicitly connect this node to another
+                createLinkSection
+
                 // Metadata
                 metadataSection
                 
@@ -366,6 +375,132 @@ struct InspectorPanel: View {
         case .mentions: "mentions"
         case .scheduledFor: "scheduled"
         case .fromSource: "from source"
+        }
+    }
+
+    // MARK: - Create Link
+
+    /// Search results for linking — excludes self and already-connected nodes
+    private var linkSearchResults: [MindNode] {
+        guard !linkSearchText.isEmpty else { return [] }
+        let query = linkSearchText.lowercased()
+        let connectedIDs = Set(store.connectedNodes(for: node.id).map(\.id))
+        return store.nodes.values
+            .filter { $0.id != node.id && !connectedIDs.contains($0.id) }
+            .filter { $0.title.lowercased().contains(query) || $0.body.lowercased().contains(query) }
+            .sorted { $0.relevance > $1.relevance }
+            .prefix(5)
+            .map { $0 }
+    }
+
+    private var createLinkSection: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+            HStack(spacing: Theme.Spacing.sm) {
+                Text("CREATE LINK")
+                    .font(Theme.Fonts.tiny)
+                    .foregroundStyle(.tertiary)
+                    .tracking(1)
+                Spacer()
+                if linkCreatedFeedback {
+                    HStack(spacing: 3) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 9))
+                            .foregroundStyle(.green)
+                        Text("Linked")
+                            .font(Theme.Fonts.tiny)
+                            .foregroundStyle(.green)
+                    }
+                    .transition(.opacity.combined(with: .scale(scale: 0.8)))
+                }
+            }
+
+            // Link type picker
+            HStack(spacing: 4) {
+                ForEach(LinkType.allCases, id: \.self) { linkType in
+                    Button { selectedLinkType = linkType } label: {
+                        Text(linkTypeLabel(linkType))
+                            .font(Theme.Fonts.tiny)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(
+                                selectedLinkType == linkType
+                                    ? Theme.Colors.accent.opacity(0.12)
+                                    : Color.clear,
+                                in: RoundedRectangle(cornerRadius: 4)
+                            )
+                            .foregroundStyle(selectedLinkType == linkType ? AnyShapeStyle(Theme.Colors.accent) : AnyShapeStyle(.tertiary))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            // Search field
+            HStack(spacing: 4) {
+                Image(systemName: "link.badge.plus")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+                TextField("Search nodes to link...", text: $linkSearchText)
+                    .textFieldStyle(.plain)
+                    .font(Theme.Fonts.caption)
+                    .onChange(of: linkSearchText) { _, _ in
+                        showLinkSearch = !linkSearchText.isEmpty
+                    }
+                if !linkSearchText.isEmpty {
+                    Button {
+                        linkSearchText = ""
+                        showLinkSearch = false
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, Theme.Spacing.sm)
+            .padding(.vertical, 5)
+            .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: Theme.Radius.chip))
+
+            // Search results
+            if showLinkSearch && !linkSearchResults.isEmpty {
+                VStack(spacing: 1) {
+                    ForEach(linkSearchResults) { candidate in
+                        Button { createLink(to: candidate) } label: {
+                            HStack(spacing: Theme.Spacing.sm) {
+                                Image(systemName: candidate.type.sfIcon)
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(Theme.Colors.typeColor(candidate.type))
+                                    .frame(width: 14)
+                                Text(candidate.title)
+                                    .font(Theme.Fonts.caption)
+                                    .lineLimit(1)
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                Image(systemName: "plus.circle")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(Theme.Colors.accent)
+                            }
+                            .padding(.horizontal, Theme.Spacing.sm)
+                            .padding(.vertical, 4)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .background(.quaternary.opacity(0.15), in: RoundedRectangle(cornerRadius: 4))
+                    }
+                }
+            }
+        }
+    }
+
+    private func createLink(to target: MindNode) {
+        guard !store.linkExists(sourceID: node.id, targetID: target.id, type: selectedLinkType) else { return }
+        let link = MindLink(sourceID: node.id, targetID: target.id, linkType: selectedLinkType)
+        try? store.insertLink(link)
+        linkSearchText = ""
+        showLinkSearch = false
+        withAnimation { linkCreatedFeedback = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            withAnimation { linkCreatedFeedback = false }
         }
     }
 
