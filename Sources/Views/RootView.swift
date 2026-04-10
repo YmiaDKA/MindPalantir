@@ -12,6 +12,7 @@ struct RootView: View {
     @State private var showQuickSwitcher = false
     @State private var showKeyboardHelp = false
     @State private var showCommandPalette = false
+    @State private var showQuickTask = false
     @State private var focusMode = false
     @State private var preFocusShowInspector = false
     @StateObject private var toastManager = ToastManager()
@@ -134,6 +135,12 @@ struct RootView: View {
                     .controlSize(.small)
                     .keyboardShortcut("n", modifiers: .command)
                     .help("Quick Add (⌘N)")
+
+                    Button { showQuickTask = true } label: {
+                        Image(systemName: "checkmark.circle.badge.plus")
+                    }
+                    .controlSize(.small)
+                    .help("Quick Task (⌘T)")
                 }
             }
         }
@@ -151,6 +158,19 @@ struct RootView: View {
                 }
                 .transition(.opacity.combined(with: .scale(scale: 0.95)))
                 .animation(.spring(response: 0.2, dampingFraction: 0.8), value: showQuickSwitcher)
+            }
+            if showQuickTask {
+                ZStack {
+                    Color.black.opacity(0.25)
+                        .ignoresSafeArea()
+                        .onTapGesture { showQuickTask = false }
+                    QuickTaskPanel(
+                        isPresented: $showQuickTask,
+                        selectedNode: $selectedNode
+                    )
+                }
+                .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                .animation(.spring(response: 0.2, dampingFraction: 0.8), value: showQuickTask)
             }
         }
         .onChange(of: selectedNode) { _, newNode in
@@ -170,6 +190,9 @@ struct RootView: View {
         .background {
             Button("") { duplicateSelectedNode() }
                 .keyboardShortcut("d", modifiers: .command)
+                .opacity(0)
+            Button("") { showQuickTask = true }
+                .keyboardShortcut("t", modifiers: .command)
                 .opacity(0)
         }
     }
@@ -228,6 +251,19 @@ struct RootView: View {
                 }
                 .transition(.opacity.combined(with: .scale(scale: 0.95)))
                 .animation(.spring(response: 0.2, dampingFraction: 0.8), value: showCommandPalette)
+            }
+            if showQuickTask {
+                ZStack {
+                    Color.black.opacity(0.25)
+                        .ignoresSafeArea()
+                        .onTapGesture { showQuickTask = false }
+                    QuickTaskPanel(
+                        isPresented: $showQuickTask,
+                        selectedNode: $selectedNode
+                    )
+                }
+                .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                .animation(.spring(response: 0.2, dampingFraction: 0.8), value: showQuickTask)
             }
         }
         .onChange(of: selectedNode) { _, newNode in
@@ -296,6 +332,13 @@ struct RootView: View {
                     .help("Quick Add (⌘N)")
                     .accessibilityLabel("Quick Add")
 
+                    Button { showQuickTask = true } label: {
+                        Image(systemName: "checkmark.circle.badge.plus")
+                    }
+                    .controlSize(.small)
+                    .help("Quick Task (⌘T)")
+                    .accessibilityLabel("Quick Task")
+
                     Button { showInspector.toggle() } label: {
                         Image(systemName: "sidebar.right")
                     }
@@ -338,6 +381,10 @@ struct RootView: View {
             // Global keyboard shortcut: duplicate selected node
             Button("") { duplicateSelectedNode() }
                 .keyboardShortcut("d", modifiers: .command)
+                .opacity(0)
+            // Global keyboard shortcut: quick task
+            Button("") { showQuickTask = true }
+                .keyboardShortcut("t", modifiers: .command)
                 .opacity(0)
         }
     }
