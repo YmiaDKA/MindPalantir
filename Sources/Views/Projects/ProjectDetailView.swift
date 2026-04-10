@@ -415,7 +415,7 @@ struct ProjectDetailView: View {
         .spatialCard(shadow: Theme.Shadow.card)
     }
 
-    // MARK: - Connections Card (mini-graph)
+    // MARK: - Connections Card (mini-graph with Canvas visualization)
 
     private var connectionsCard: some View {
         let connected = allConnected
@@ -463,6 +463,11 @@ struct ProjectDetailView: View {
                 Spacer()
             }
 
+            // Mini graph canvas — visual map of connections
+            if !connected.isEmpty {
+                miniGraphCanvas(nodes: connected)
+            }
+
             if showConnections {
                 Divider()
                 // Connection list
@@ -494,6 +499,167 @@ struct ProjectDetailView: View {
         .padding(Theme.Spacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .spatialCard(shadow: Theme.Shadow.card)
+    }
+
+    // MARK: - Mini Graph Canvas
+
+    /// Visual graph of connected nodes — project in center, connections orbit around it.
+    /// Lines show links between connected nodes that share their own connections.
+    /// Inspired by gbrain's graph traversal and Obsidian's local graph.
+    private func miniGraphCanvas(nodes connected: [MindNode]) -> some View {
+        // Pre-compute link pairs between connected nodes (not just to project)
+        let connectedIDs = Set(connected.map(\.id))
+        let interLinks: [(UUID, UUID)] = store.links.values.compactMap { link in
+            guard connectedIDs.contains(link.sourceID),
+                  connectedIDs.contains(link.targetID),
+                  link.sourceID != link.targetID else { return nil }
+            return (link.sourceID, link.targetID)
+        }
+
+        return Canvas { context, size in
+            let center = CGPoint(x: size.width / 2, y: size.height / 2)
+            let maxRadius = min(size.width, size.height) / 2 - 20
+            let count = connected.count
+
+            // Draw inter-connection lines (between connected nodes)
+            for (a, b) in interLinks {
+                let angleA = angleFor(nodeID: a, in: connected, index: count)
+                let angleB = angleFor(nodeID: b, in: connected, index: count)
+                let posA = CGPoint(
+                    x: center.x + cos(angleA) * maxRadius * 0.7,
+                    y: center.y + sin(angleA) * maxRadius * 0.7
+                )
+                let posB = CGPoint(
+                    x: center.x + cos(angleB) * maxRadius * 0.7,
+                    y: center.y + sin(angleB) * maxRadius * 0.7
+                )
+                var line = Path()
+                line.move(to: posA)
+                line.addLine(to: posB)
+                context.stroke(line, with: .color(.secondary.opacity(0.1)), lineWidth: 0.5)
+            }
+
+            // Draw lines from center to each connected node
+            for (i, node) in connected.enumerated() {
+                let angle = (2 * .pi * Double(i)) / Double(max(count, 1)) - .pi / 2
+                let distance = maxRadius * 0.7
+                let pos = CGPoint(
+                    x: center.x + cos(angle) * distance,
+                    y: center.y + sin(angle) * distance
+                )
+                var line = Path()
+                line.move(to: center)
+                line.addLine(to: pos)
+                context.stroke(
+                    line,
+                    with: .color(Theme.Colors.typeColor(node.type).opacity(0.25)),
+                    lineWidth: 1
+                )
+            }
+
+            // Draw project node (center) — larger, with accent glow
+            let projectRadius: CGFloat = 12
+            let glowRect = CGRect(
+                x: center.x - projectRadius - 6,
+                y: center.y - projectRadius - 6,
+                width: (projectRadius + 6) * 2,
+                height: (projectRadius + 6) * 2
+            )
+            context.fill(
+                Path(ellipseIn: glowRect),
+                with: .color(Theme.Colors.typeColor(.project).opacity(0.12))
+            )
+            let projectRect = CGRect(
+                x: center.x - projectRadius,
+                y: center.y - projectRadius,
+                width: projectRadius * 2,
+                height: projectRadius * 2
+            )
+            context.fill(
+                Path(ellipseIn: projectRect),
+                with: .color(Theme.Colors.typeColor(.project))
+            )
+            context.stroke(
+                Path(ellipseIn: projectRect),
+                with: .color(Theme.Colors.typeColor(.project).opacity(0.6)),
+                lineWidth: 1
+            )
+
+            // Draw connected nodes as colored dots
+            for (i, node) in connected.enumerated() {
+                let angle = (2 * .pi * Double(i)) / Double(max(count, 1)) - .pi / 2
+                let distance = maxRadius * 0.7
+                let pos = CGPoint(
+                    x: center.x + cos(angle) * distance,
+                    y: center.y + sin(angle) * distance
+                )
+                let nodeRadius: CGFloat = 4 + CGFloat(node.relevance) * 5  // 4...9 based on relevance
+                let color = Theme.Colors.typeColor(node.type)
+
+                // Glow for high relevance
+                if node.relevance > 0.6 {
+                    let glow = CGRect(
+                        x: pos.x - nodeRadius - 3,
+                        y: pos.y - nodeRadius - 3,
+                        width: (nodeRadius + 3) * 2,
+                        height: (nodeRadius + 3) * 2
+                    )
+                    context.fill(
+                        Path(ellipseIn: glow),
+                        with: .color(color.opacity(0.15))
+                    )
+                }
+
+                let dotRect = CGRect(
+                    x: pos.x - nodeRadius,
+                    y: pos.y - nodeRadius,
+                    width: nodeRadius * 2,
+                    height: nodeRadius * 2
+                )
+                context.fill(
+                    Path(ellipseIn: dotRect),
+                    with: .color(color.opacity(0.8))
+                )
+                context.stroke(
+                    Path(ellipseIn: dotRect),
+                    with: .color(color.opacity(0.4)),
+                    lineWidth: 0.5
+                )
+
+                // Label for nodes when count <= 12
+                if count <= 12 {
+                    let labelPos = CGPoint(
+                        x: pos.x,
+                        y: pos.y + nodeRadius + 6
+                    )
+                    let label = context.resolve(
+                        Text(node.title.count > 14 ? String(node.title.prefix(12)) + "…" : node.title)
+                            .font(.system(size: 8, weight: .medium))
+                    )
+                    context.draw(label, at: labelPos, anchor: .top)
+                }
+            }
+        }
+        .frame(height: connected.count <= 6 ? 140 : 180)
+        .background(
+            RoundedRectangle(cornerRadius: Theme.Radius.chip)
+                .fill(Color(NSColor.controlBackgroundColor).opacity(0.3))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.Radius.chip)
+                .strokeBorder(Color.primary.opacity(0.04), lineWidth: 0.5)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture(count: 2) {
+            // Double-click on empty area selects the project
+            selectedNode = project
+        }
+    }
+
+    /// Deterministic angle for a node ID in the graph (stable across redraws).
+    private func angleFor(nodeID: UUID, in nodes: [MindNode], index count: Int) -> Double {
+        guard let i = nodes.firstIndex(where: { $0.id == nodeID }) else { return 0 }
+        return (2 * .pi * Double(i)) / Double(max(count, 1)) - .pi / 2
     }
 
     // MARK: - Tasks Card
