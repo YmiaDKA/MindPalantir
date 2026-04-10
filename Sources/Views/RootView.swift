@@ -17,6 +17,7 @@ struct RootView: View {
     @State private var focusMode = false
     @State private var preFocusShowInspector = false
     @StateObject private var toastManager = ToastManager()
+    @State private var saveState = SaveIndicatorState()
     
     /// Global search results across all nodes — uses FTS5
     private var searchResults: [MindNode] {
@@ -86,10 +87,20 @@ struct RootView: View {
     }
 
     var body: some View {
-        if focusMode {
-            focusModeView
-        } else {
-            normalView
+        ZStack(alignment: .bottomTrailing) {
+            if focusMode {
+                focusModeView
+            } else {
+                normalView
+            }
+            
+            // Auto-save indicator — subtle confirmation that changes persist
+            SaveIndicator(phase: saveState.phase)
+                .padding(.trailing, Theme.Spacing.lg)
+                .padding(.bottom, Theme.Spacing.sm)
+        }
+        .onChange(of: store.changeCount) { _, newCount in
+            saveState.handleChange(newCount: newCount)
         }
     }
 
