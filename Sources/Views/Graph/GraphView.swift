@@ -15,6 +15,8 @@ struct GraphView: View {
     @State private var isSimulating = true
     @State private var filterType: NodeType?
     @State private var showLabels = true
+    @State private var searchText: String = ""
+    @State private var showSearchResults = false
     @GestureState private var panState: CGSize = .zero
     @GestureState private var magnifyState: CGFloat = 1.0
 
@@ -42,6 +44,23 @@ struct GraphView: View {
         }
     }
 
+    /// Nodes matching the search text — shown in dropdown and highlighted in graph
+    private var searchMatches: [MindNode] {
+        guard !searchText.isEmpty else { return [] }
+        let query = searchText.lowercased()
+        return displayNodes
+            .filter { $0.title.lowercased().contains(query) || $0.body.lowercased().contains(query) }
+            .sorted { $0.relevance > $1.relevance }
+            .prefix(8)
+            .map { $0 }
+    }
+
+    /// Set of node IDs that match search (for fast lookup during drawing)
+    private var searchMatchIDs: Set<UUID> {
+        guard !searchText.isEmpty else { return [] }
+        return Set(searchMatches.map(\.id))
+    }
+
     // MARK: - Body
 
     var body: some View {
@@ -60,12 +79,16 @@ struct GraphView: View {
                         context.scaleBy(x: cameraZoom * magnifyState, y: cameraZoom * magnifyState)
 
                         // Draw links
+                        let linkOpacity: Double = searchText.isEmpty ? 0.2 : (searchMatchIDs.isEmpty ? 0.2 : 0.05)
                         for link in displayLinks {
                             guard let fromPos = positions[link.from], let toPos = positions[link.to] else { continue }
+                            // Highlight links between matched nodes
+                            let isMatchLink = searchMatchIDs.contains(link.from) && searchMatchIDs.contains(link.to)
+                            let opacity = isMatchLink && !searchText.isEmpty ? 0.5 : linkOpacity
                             var path = Path()
                             path.move(to: fromPos)
                             path.addLine(to: toPos)
-                            context.stroke(path, with: .color(.secondary.opacity(0.2)), lineWidth: 0.5)
+                            context.stroke(path, with: .color(.secondary.opacity(opacity)), lineWidth: isMatchLink ? 1.5 : 0.5)
                         }
 
                         // Draw nodes
@@ -75,8 +98,17 @@ struct GraphView: View {
                             let color = Theme.Colors.typeColor(node.type)
                             let rect = CGRect(x: pos.x - radius, y: pos.y - radius, width: radius * 2, height: radius * 2)
 
+                            // Glow for search matches
+                            let isSearchMatch = searchMatchIDs.contains(node.id)
+                            if isSearchMatch && !searchText.isEmpty {
+                                let glowRect = rect.insetBy(dx: -6, dy: -6)
+                                context.fill(
+                                    Path(ellipseIn: glowRect),
+                                    with: .color(Theme.Colors.accent.opacity(0.25))
+                                )
+                            }
                             // Glow for high relevance
-                            if node.relevance > 0.7 {
+                            else if node.relevance > 0.7 {
                                 let glowRect = rect.insetBy(dx: -4, dy: -4)
                                 context.fill(
                                     Path(ellipseIn: glowRect),
@@ -164,8 +196,63 @@ struct GraphView: View {
                     simulateStep()
                 }
             }
+
+            // Search results dropdown
+            if showSearchResults && !searchMatches.isEmpty {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(searchMatches) { node in
+                        Button {
+                            centerCamera(on: node.id)
+                            selectedNode = node
+                            showSearchResults = false
+                        } label: {
+                            HStack(spacing: Theme.Spacing.sm) {
+                                Circle()
+                                    .fill(Theme.Colors.typeColor(node.type))
+                                    .frame(width: 6, height: 6)
+                                Text(node.title)
+                                    .font(Theme.Fonts.caption)
+                                    .lineLimit(1)
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                Text(node.type.rawValue)
+                                    .font(Theme.Fonts.tiny)
+                                    .foregroundStyle(.tertiary)
+                            }
+                            .padding(.horizontal, Theme.Spacing.md)
+                            .padding(.vertical, 6)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .background {
+                            if selectedNode?.id == node.id {
+                                Theme.Colors.accent.opacity(0.08)
+                            }
+                        }
+                    }
+                }
+                .frame(maxWidth: 220)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: Theme.Radius.chip))
+                .shadow(color: .black.opacity(0.12), radius: 8, y: 4)
+                .overlay(
+                    RoundedRectangle(cornerRadius: Theme.Radius.chip)
+                        .strokeBorder(.quaternary, lineWidth: 0.5)
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .padding(.leading, Theme.Spacing.lg)
+                .padding(.top, 4)
+            }
         }
         .navigationTitle("Graph")
+    }
+
+    // MARK: - Camera
+
+    private func centerCamera(on nodeID: UUID) {
+        guard let pos = positions[nodeID] else { return }
+        withAnimation(.easeInOut(duration: 0.3)) {
+            cameraOffset = CGSize(width: -pos.x * cameraZoom, height: -pos.y * cameraZoom)
+        }
     }
 
     // MARK: - Toolbar
@@ -173,6 +260,45 @@ struct GraphView: View {
     private var graphToolbar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: Theme.Spacing.sm) {
+                // Node search
+                HStack(spacing: 4) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+                    TextField("Find node...", text: $searchText)
+                        .textFieldStyle(.plain)
+                        .font(Theme.Fonts.caption)
+                        .frame(width: 120)
+                        .onChange(of: searchText) { _, _ in
+                            showSearchResults = !searchText.isEmpty
+                        }
+                    if !searchText.isEmpty {
+                        Button {
+                            searchText = ""
+                            showSearchResults = false
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.tertiary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 4)
+                .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: Theme.Radius.chip))
+
+                if !searchMatches.isEmpty {
+                    Text("\(searchMatches.count)")
+                        .font(Theme.Fonts.tiny)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(Theme.Colors.accent.opacity(0.1), in: Capsule())
+                }
+
+                Divider().frame(height: 16)
+
                 // Type filter
                 Menu {
                     Button("All Types") { filterType = nil }
@@ -338,10 +464,19 @@ struct GraphView: View {
 
     private func nodeRadius(_ node: MindNode) -> CGFloat {
         let base: CGFloat = node.type == .project ? 12 : 8
-        return base + CGFloat(node.relevance) * 8
+        let radius = base + CGFloat(node.relevance) * 8
+        // Boost matching nodes during search
+        if !searchText.isEmpty && searchMatchIDs.contains(node.id) {
+            return radius + 3
+        }
+        return radius
     }
 
     private func nodeOpacity(_ node: MindNode) -> Double {
+        // When searching, dim non-matching nodes
+        if !searchText.isEmpty && !searchMatchIDs.contains(node.id) {
+            return 0.1
+        }
         if node.status == .archived { return 0.3 }
         if node.status == .completed { return 0.5 }
         return 0.6 + node.relevance * 0.3
