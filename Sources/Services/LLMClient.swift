@@ -137,8 +137,15 @@ final class LLMClient: Sendable {
 // MARK: - Types
 
 struct ChatMessage: Codable, Sendable {
-    let role: String  // "system", "user", "assistant"
+    let role: String  // "system", "user", "assistant", "tool"
     let content: String
+    let timestamp: Date
+
+    init(role: String, content: String, timestamp: Date = .now) {
+        self.role = role
+        self.content = content
+        self.timestamp = timestamp
+    }
 }
 
 enum LLMError: Error, LocalizedError {

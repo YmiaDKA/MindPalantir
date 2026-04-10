@@ -384,7 +384,7 @@ struct ThinkingDots: View {
     }
 }
 
-// MARK: - Streaming Bubble (with blinking cursor)
+// MARK: - Streaming Bubble (with blinking cursor + markdown)
 
 struct StreamingBubble: View {
     let text: String
@@ -398,15 +398,22 @@ struct StreamingBubble: View {
                 .foregroundStyle(Theme.Colors.accent)
                 .padding(.top, 2)
 
-            (Text(text) + Text(cursorVisible && showCursor ? "▌" : " ").foregroundStyle(Theme.Colors.accent))
-                .font(Theme.Fonts.body)
-                .textSelection(.enabled)
-                .padding(.horizontal, Theme.Spacing.md)
-                .padding(.vertical, Theme.Spacing.sm)
-                .background(
-                    RoundedRectangle(cornerRadius: Theme.Radius.card)
-                        .fill(Color(NSColor.controlBackgroundColor))
-                )
+            VStack(alignment: .leading, spacing: 0) {
+                MarkdownText(text)
+                    .textSelection(.enabled)
+
+                if showCursor {
+                    Text(cursorVisible ? "▌" : " ")
+                        .foregroundStyle(Theme.Colors.accent)
+                        .animation(.none, value: cursorVisible)
+                }
+            }
+            .padding(.horizontal, Theme.Spacing.md)
+            .padding(.vertical, Theme.Spacing.sm)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.Radius.card)
+                    .fill(Color(NSColor.controlBackgroundColor))
+            )
 
             Spacer(minLength: 60)
         }
@@ -463,13 +470,16 @@ struct ToolCallChip: View {
     }
 }
 
-// MARK: - Chat Bubble
+// MARK: - Chat Bubble (markdown + copy + timestamp)
 
 struct ChatBubble: View {
     let message: ChatMessage
+    @State private var isHovered = false
+    @State private var showCopied = false
 
     private var isUser: Bool { message.role == "user" }
     private var isTool: Bool { message.role == "tool" }
+    private var isAssistant: Bool { message.role == "assistant" }
 
     var body: some View {
         if isTool {
@@ -494,19 +504,98 @@ struct ChatBubble: View {
                         .padding(.top, 2)
                 }
 
-                Text(message.content)
-                    .font(Theme.Fonts.body)
+                VStack(alignment: isUser ? .trailing : .leading, spacing: 4) {
+                    // Message content — markdown for assistant, plain for user
+                    Group {
+                        if isAssistant {
+                            MarkdownText(message.content)
+                        } else {
+                            Text(message.content)
+                                .font(Theme.Fonts.body)
+                        }
+                    }
                     .textSelection(.enabled)
-                    .padding(.horizontal, Theme.Spacing.md)
-                    .padding(.vertical, Theme.Spacing.sm)
-                    .background(
-                        RoundedRectangle(cornerRadius: Theme.Radius.card)
-                            .fill(isUser ? Theme.Colors.accent.opacity(0.1) : Color(NSColor.controlBackgroundColor))
-                    )
+                    .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
+
+                    // Bottom row: timestamp + copy
+                    HStack(spacing: Theme.Spacing.xs) {
+                        if !isUser {
+                            Text(message.timestamp, style: .time)
+                                .font(Theme.Fonts.tiny)
+                                .foregroundStyle(.tertiary)
+                        }
+
+                        Spacer(minLength: 0)
+
+                        if isHovered || showCopied {
+                            Button {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(message.content, forType: .string)
+                                withAnimation { showCopied = true }
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                                    withAnimation { showCopied = false }
+                                }
+                            } label: {
+                                HStack(spacing: 3) {
+                                    Image(systemName: showCopied ? "checkmark" : "doc.on.doc")
+                                        .font(.system(size: 9))
+                                    if showCopied {
+                                        Text("Copied")
+                                            .font(Theme.Fonts.tiny)
+                                    }
+                                }
+                                .foregroundStyle(showCopied ? AnyShapeStyle(.green) : AnyShapeStyle(.tertiary))
+                            }
+                            .buttonStyle(.plain)
+                            .transition(.opacity.combined(with: .scale(scale: 0.8)))
+                        }
+
+                        if isUser {
+                            Text(message.timestamp, style: .time)
+                                .font(Theme.Fonts.tiny)
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                }
+                .padding(.horizontal, Theme.Spacing.md)
+                .padding(.vertical, Theme.Spacing.sm)
+                .background(
+                    RoundedRectangle(cornerRadius: Theme.Radius.card)
+                        .fill(isUser ? Theme.Colors.accent.opacity(0.1) : Color(NSColor.controlBackgroundColor))
+                )
+                .onHover { hovering in
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        isHovered = hovering
+                    }
+                }
 
                 if !isUser { Spacer(minLength: 60) }
             }
             .transition(.opacity.combined(with: .move(edge: isUser ? .trailing : .leading)))
+        }
+    }
+}
+
+// MARK: - Markdown Text Renderer
+
+/// Renders markdown using AttributedString — bold, italic, code, links, lists.
+/// Falls back to plain text if parsing fails (e.g., mid-stream incomplete markdown).
+struct MarkdownText: View {
+    let content: String
+
+    init(_ content: String) {
+        self.content = content
+    }
+
+    var body: some View {
+        if let attributed = try? AttributedString(markdown: content, options: AttributedString.MarkdownParsingOptions(
+            interpretedSyntax: .inlineOnlyPreservingWhitespace
+        )) {
+            Text(attributed)
+                .font(Theme.Fonts.body)
+        } else {
+            Text(content)
+                .font(Theme.Fonts.body)
         }
     }
 }
